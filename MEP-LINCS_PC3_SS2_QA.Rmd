@@ -51,6 +51,7 @@ library("RUVnormalize")
 selDark2 <- colorRampPalette(brewer.pal(8,"Dark2"))
 plateCol = selDark2(8)
 
+#TODO: Modify this for new file structure
 l1 <- fread(paste0("./",cellLine,"/",ss,"/AnnotatedData/",cellLine,"_",ss,"_Level1.txt"), showProgress = FALSE)
 
 #Keep the control wells separate
