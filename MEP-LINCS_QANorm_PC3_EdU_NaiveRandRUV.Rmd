@@ -97,8 +97,6 @@ source("MEPLINCSFunctions.R")
 supportingPlots = FALSE
 runRUV2S = TRUE
 
-#Set the staining set to be analyzed (SS1|SS2|SS3)
-ss <- switch(s,EdU="SS2",Lineage="SS3")
 
 ```
 
@@ -121,7 +119,7 @@ selDark2 <- colorRampPalette(brewer.pal(8,"Dark2"))
 plateCol = selDark2(8)
 
 #ToDo Make changes for new folder sturcture
-l1 <- fread(paste0("./",cellLine,"/",ss,"/AnnotatedData/",cellLine,"_",ss,"_Level1.txt"), showProgress = FALSE)
+l1 <- fread(x[["inputFileName"]], showProgress = FALSE)
 
 #Keep the control wells separate
 l1$Ligand[l1$Ligand=="FBS"] <- paste(l1$Ligand[l1$Ligand=="FBS"],"C",as.numeric(factor(l1$Barcode[l1$Ligand=="FBS"])),sep="")
@@ -177,7 +175,7 @@ YEdU <- matrix(unlist(l3EdUm), nrow=nrow(l3EdUm), dimnames=list(l3EdUc$BWL, coln
 
 ```
 ---
-title: "MEP-LINCS `r cellLine` `r ss` `r s` Quality Analysis"
+title: "MEP-LINCS `r x[["CellLine"]]` `r x[["StainingSet"]]` `r x[["Signal"]]` Quality Analysis"
 date: "`r Sys.Date()`"
 ---
 
