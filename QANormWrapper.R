@@ -8,7 +8,7 @@ library("rmarkdown")
 dataFiles <- data.frame(CellLine=c("PC3"),
                         StainingSet = c("SS2"),
                         Signal=c("EdU"),
-                        Method=c("NaiveRandRUV"),
+                        Method=c("NaiveReplicateRUV"),
                         inputFileName=c("../MEP-LINCS/PC3/SS2/AnnotatedData/PC3_SS2_Level1.txt"),
                         stringsAsFactors = FALSE)
 x <- dataFiles
