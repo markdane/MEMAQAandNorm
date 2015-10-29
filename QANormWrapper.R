@@ -4,11 +4,19 @@ library("rmarkdown")
 #s is signal
 #m is method
 
-for(cellLine in c("PC3")){
-  for(s in c("EdU")){
-    for(m in c("NaiveRandRUV"))
-      render(paste0("Mep-LINCS_QANorm_",cellLine,"_",s,"_",m,".Rmd"),
-             output_file = paste0("Mep-LINCS_QANorm_",cellLine,"_",s,"_",m,".html"),
-             output_format = "html_document") 
-  }
+
+dataFiles <- data.frame(CellLine=c("PC3"),
+                        StainingSet = c("SS2"),
+                        Signal=c("EdU"),
+                        Method=c("NaiveRandRUV"),
+                        inputFileName=c("../MEP-LINCS/PC3/SS2/AnnotatedData/PC3_SS2_Level1.txt"),
+                        stringsAsFactors = FALSE)
+x <- dataFiles
+
+callQANorm <- function(x){
+  render(paste0("Mep-LINCS_QANorm_",x[["CellLine"]],"_",x[["Signal"]],"_",x[["Method"]],".Rmd"),
+         output_file = paste0("Mep-LINCS_QANorm_",x[["CellLine"]],"_",x[["Signal"]],"_",x[["Method"]],".html"),
+         output_format = "html_document") 
 }
+
+apply(dataFiles, 1, callQANorm)
