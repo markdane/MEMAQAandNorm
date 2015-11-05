@@ -220,7 +220,7 @@ nY <- rbindlist(nYknList)
 
 ```{r, eval=x[["Method"]]=="RUV3"}
 
-nYkList <- lapply(1:4, function(k, Y, M, cIdx, mValue, MValue){
+nYkList <- lapply(1:5, function(k, Y, M, cIdx, mValue, MValue){
   #browser()
   nYm <- medianRUVIIIPlate(k, Y, M, cIdx)
   setnames(nYm, "Value", "mel")
