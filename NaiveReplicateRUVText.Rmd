@@ -1,0 +1,4 @@
+
+###NaiveReplicateRUV2 with Array as Unit of Study
+
+In the following plots naiveReplicateRUV-2 normalization is applied to the `r x[["Signal"]]` signal of all spots with an array as the unit of study. The input data is a 64x694 matrix of logit transformed `r x[["Signal"]]` values. The A03 FBS wells are designated as replicates. All spots are designated as negative controls. The faceted plots show various values of the nu and k parameters.

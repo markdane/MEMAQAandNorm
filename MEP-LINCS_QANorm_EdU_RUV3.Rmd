@@ -23,39 +23,36 @@ plotLEHmap <- function(dt, fill, titleExpression){
   suppressWarnings(print(p))
 }
 
-medianNaiveRUV2 <- function(nu, Y, cIdx, k){
-  nY <- naiveRandRUV(Y, cIdx, nu, k)
-  #Median summarize the normalized values
+
+medianRUVIIIPlate <- function(k, Y, M, cIdx){
+  #browser()
+  nY <- RUVIII(Y, M, cIdx, k)
   #melt matrix to have ECMp and Ligand columns
-  nYm <- melt(nY, varnames=c("BWL","SE"))
-  #Recreate a MEP column
-  nYm$ECMp <- sub("([[:alnum:]]*_){1}","",nYm$SE)
-  nYm$Ligand <- sub("([[:alnum:]]*_){2}","",nYm$BWL)
-  nYm$MEP <- paste(nYm$ECMp,nYm$Ligand, sep="_")
-  nYm$Barcode <- strsplit2(nYm$BWL,split="_")[,1]
+  nYm <- melt(nY, varnames=c("Barcode","WSE"))
+  #Extract ECMp and Well values into separate columns
+  nYm$ECMp <- sub("([[:alnum:]]*_){2}","",nYm$WSE)
+  nYm$Well <- strsplit2(nYm$WSE,split="_")[,1]
+
   #Median summarize by MEP
   nYm <- data.table(nYm)
-  nYm <- nYm[, BWL := NULL]
-  nYm <- nYm[, SE := NULL]
-  nYm <- nYm[,list(Value = median(value)), by="Barcode,MEP,ECMp,Ligand"]
+  nYm <- nYm[, WSE := NULL]
+  nYm <- nYm[,list(Value = median(value)), by="Barcode,Well,ECMp"]
   return(nYm)
 }
 
-madNaiveRUV2 <- function(nu, Y, cIdx, k){
-  nY <- naiveRandRUV(Y, cIdx, nu, k)
-  #MAD summarize the normalized values
+madRUVIIIPlate <- function(k, Y, M, cIdx){
+  #browser()
+  nY <- RUVIII(Y, M, cIdx, k)
   #melt matrix to have ECMp and Ligand columns
-  nYm <- melt(nY, varnames=c("BWL","SE"))
-  #Recreate a MEP column
-  nYm$ECMp <- sub("([[:alnum:]]*_){1}","",nYm$SE)
-  nYm$Ligand <- sub("([[:alnum:]]*_){2}","",nYm$BWL)
-  nYm$MEP <- paste(nYm$ECMp,nYm$Ligand, sep="_")
-  nYm$Barcode <- strsplit2(nYm$BWL,split="_")[,1]
-  #Median summarize by MEP
+  nYm <- melt(nY, varnames=c("Barcode","WSE"))
+  #Extract ECMp and Well values into separate columns
+  nYm$ECMp <- sub("([[:alnum:]]*_){2}","",nYm$WSE)
+  nYm$Well <- strsplit2(nYm$WSE,split="_")[,1]
+
+  #MAD summarize the normalized values by MEP
   nYm <- data.table(nYm)
-  nYm <- nYm[, BWL := NULL]
-  nYm <- nYm[, SE := NULL]
-  nYM <- nYm[,list(Value = mad(value)), by="Barcode,MEP,ECMp,Ligand"]
+  nYm <- nYm[, WSE := NULL]
+  nYM <- nYm[,list(Value = mad(value)), by="Barcode,Well,ECMp"]
   return(nYM)
 }
 
@@ -159,10 +156,17 @@ m.. <- median(l1MEPs$mel, na.rm = TRUE)
 M.. <- median(l1MEPs$Mel, na.rm = TRUE)
 ```
 
-```{r RUV2+Shrinkage, eval=runRUV2S}
-#Unit of study is array so there are 64 'samples'of 594 spots, no replicates
+```{r RUVIII, eval=TRUE}
 #Order the spot level data by plate, well, spot number
 #Create a spot assignment that works with rotated B row arrays
+#RUV-III without the final step of averaging. 
+#k=0,1, 2, 3, 4 say
+#treat plates as units 
+#neg controls from control ligand
+#view all 8 plates as replicates.
+#M would be a m by 1 matrix of all 1s, where m is the number of rows of Y.  
+#keep k very small.
+
 l3$RSpot <- l3$Spot
 l3$RSpot[grepl("B",l3$Well)] <- 701-l3$RSpot[grepl("B",l3$Well)]
 #Add in ligand and ECMp names so they will carry through the normalization
@@ -204,16 +208,15 @@ plotLEHmap(l1MEPs, fill="Mel", titleExpression)
 
 ```
 
-###NaiveRandRUV with Plate as Unit of Study
+###RUVIII with Plate as Unit of Study
 
-In the following plots naiveRUV-2 normalization is applied to the EdU signal of all spots with the plate as the unit of study. This creates an 8x5552 matrix of EdU+ spot values. The 694 spots in the A03 control wells of each plate are designated as negative controls. The faceted plots show normalizatins at various nu and k values.
+In the following plots RUV-3 normalization is applied to the EdU signal of all spots with the plate as the unit of study. This creates an 8x5552 matrix of EdU+ spot values. The 694 spots in the A03 control wells of each plate are designated as negative controls. The faceted plots show normalizations at various k values.
 
 ```{r}
 #Setup data with plate as the unit
 #There are 8 'samples' with 694 controls
 #Order the spot level data by plate, well, spot number
 #Add in ligand and ECMp names so they will carry through the normalization
-#l3$WLSE <- paste(l3$Well, l3$Ligand,l3$RSpot,l3$ECMp,sep="_")
 l3$WSE <- paste(l3$Well, l3$RSpot,l3$ECMp,sep="_")
 #Cast to get mel values by barcode by well+Spot+ECMp
 #Use the names to hold the spot contents
@@ -226,49 +229,12 @@ YEdUPlate <- matrix(unlist(l3EdUPlateM), nrow=nrow(l3EdUPlateM), dimnames=list(l
 ```
 
 ```{r}
-#Use YEdUPlate as the input. It is an 8x5552 matrix with barcode rownames
-#and Well_SpotNumber_ECMp column names.
 
-medianNaiveRUV2Plate <- function(nu, Y, cIdx, k){
-  #browser()
-  nY <- naiveRandRUV(Y, cIdx, nu, k)
-  #melt matrix to have ECMp and Ligand columns
-  nYm <- melt(nY, varnames=c("Barcode","WSE"))
-  #Extract ECMp and Well values into separate columns
-  nYm$ECMp <- sub("([[:alnum:]]*_){2}","",nYm$WSE)
-  nYm$Well <- strsplit2(nYm$WSE,split="_")[,1]
-
-  #Median summarize by MEP
-  nYm <- data.table(nYm)
-  nYm <- nYm[, WSE := NULL]
-  nYm <- nYm[,list(Value = median(value)), by="Barcode,Well,ECMp"]
-  return(nYm)
-}
-
-madNaiveRUV2Plate <- function(nu, Y, cIdx, k){
-  #browser()
-  nY <- naiveRandRUV(Y, cIdx, nu, k)
-  #melt matrix to have ECMp and Ligand columns
-  nYm <- melt(nY, varnames=c("Barcode","WSE"))
-  #Extract ECMp and Well values into separate columns
-  nYm$ECMp <- sub("([[:alnum:]]*_){2}","",nYm$WSE)
-  nYm$Well <- strsplit2(nYm$WSE,split="_")[,1]
-
-  #MAD summarize the normalized values by MEP
-  nYm <- data.table(nYm)
-  nYm <- nYm[, WSE := NULL]
-  nYM <- nYm[,list(Value = mad(value)), by="Barcode,Well,ECMp"]
-  return(nYM)
-}
-```
-
-```{r}
-nYEdUPlateList <- lapply(c(2,3,4,5), function(k, YEdUPlate, cIdx, mValue, MValue){
-  nuYEdUList <- lapply(c(1e-2,1e-1,1), function(nu, k, YEdU, cIdx, mValue, MValue){
+nYEdUPlateList <- lapply(1:4, function(k, Y, M, cIdx, mValue, MValue){
     #browser()
-    nYEdUm <- medianNaiveRUV2Plate(nu, YEdU, cIdx, k)
+    nYEdUm <- medianRUVIIIPlate(k, Y, M, cIdx)
     setnames(nYEdUm, "Value", "mel")
-    nYEdUM <- madNaiveRUV2Plate(nu, YEdU, cIdx, k)
+    nYEdUM <- madRUVIIIPlate(k, Y, M, cIdx)
     setnames(nYEdUM, "Value", "Mel")
     setkey(nYEdUm,Barcode,Well,ECMp)
     setkey(nYEdUM,Barcode,Well,ECMp)
@@ -284,18 +250,15 @@ nYEdUPlateList <- lapply(c(2,3,4,5), function(k, YEdUPlate, cIdx, mValue, MValue
     #Add margin values
     nYEdU <- addMarginValues(dt=nYEdU, mValue="mel",MValue="Mel")
     nYEdU$k <- k
-    nYEdU$nu <- nu
     return(nYEdU)
-  }, k=k, YEdU=YEdUPlate, cIdx=cIdx, mValue="mel", MValue="Mel")
-  vnuYEdUDT <- rbindlist(nuYEdUList)
-}, YEdUPlate=YEdUPlate, cIdx=which(grepl("A03",colnames(YEdUPlate))), mValue="mel", MValue="Mel")
+}, Y=YEdUPlate, M=matrix(1,nrow=nrow(YEdUPlate)), cIdx=which(grepl("A03",colnames(YEdUPlate))), mValue="mel", MValue="Mel")
 
-nYEdUPlatekn <- rbindlist(nYEdUPlateList)
+nYEdUPlatek <- rbindlist(nYEdUPlateList)
 
 ```
 
 
-```{r, fig.width=4.5, fig.height=3}
+```{r, fig.height=3}
 groupBy <- "ECMp"
 value <- "mel-m.l"
 colourBy <- "Barcode"
@@ -313,21 +276,21 @@ suppressWarnings(print(p))
 
 ```{r}
 
-dt <- nYEdUPlatekn
+dt <- nYEdUPlatek
 
 p <- ggplot(dt,aes_string(x=groupBy, y=value))+
   geom_boxplot()+ 
-  ggtitle(bquote(EdU^{"+"}~ Medians~(m["e,l"]*"-"*m[".,l"])~After~NaiveRUV2~Normalization~with ~Plate~Unit~of~Study))+
+  ggtitle(bquote(EdU^{"+"}~ Medians~(m["e,l"]*"-"*m[".,l"])~After~RUVIII~Normalization~with ~Plate~Unit~of~Study))+
   xlab("")+ylab("")+
   ylim(-6,4)+
   guides(fill=FALSE)+
   theme_grey(base_size = 12, base_family = "")+
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.6)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.5)))+
-  facet_grid(k~nu, labeller = labeller(nu = label_both, k = label_both))
+facet_grid(k~., labeller = labeller(k = label_both))
 suppressWarnings(print(p))
 ```
 
-```{r, fig.width=4.5, fig.height=3}
+```{r, fig.height=3}
 groupBy <- "Ligand"
 value <- "mel-me."
 colourBy <- "Barcode"
@@ -341,26 +304,28 @@ p <- ggplot(l1MEPs, aes_string(x=groupBy, y=value, colour=colourBy))+
   theme_grey(base_size = 12, base_family = "")+
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.6)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(.5)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.5)))
 suppressWarnings(print(p))
+
 ```
 
 ```{r}
 
-dt <- nYEdUPlatekn
+dt <- nYEdUPlatek
 
 p <- ggplot(dt,aes_string(x=groupBy, y=value, colour=colourBy))+
   geom_boxplot()+ 
-  ggtitle(bquote(EdU^{"+"}~ Medians~(m["e,l"]*"-"*m["e.,."])~After~NaiveRUV2~Normalization~with ~Plate~Unit~of~Study))+
+  ggtitle(bquote(EdU^{"+"}~ Medians~(m["e,l"]*"-"*m["e.,."])~After~RUVIII~Normalization~with ~Plate~Unit~of~Study))+
   xlab("")+ylab("")+
   ylim(-6,4)+
   guides(fill=FALSE)+
   theme_grey(base_size = 12, base_family = "")+
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.6)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.5)))+
-  facet_grid(k~nu, labeller = labeller(nu = label_both, k = label_both))
+  facet_grid(k~., labeller = labeller(k = label_both))
 suppressWarnings(print(p))
+
 ```
 
 
-```{r, fig.width=4.5, fig.height=3}
+```{r, fig.width=5, fig.height=4}
 
 fill <- "mel"
 titleExpression <- expression(EdU^{"+"}~ Medians~(m["e,l"]))
@@ -377,16 +342,48 @@ p <- ggplot(dt, aes_string(x="Ligand", y="ECMp", fill = fill))+
 suppressWarnings(print(p))
 ```
 
-```{r}
-dt <- nYEdUPlatekn
+```{r, fig.width=4.5}
+
+dt <- nYEdUPlatek
 
 p <- ggplot(dt, aes_string(x="Ligand", y="ECMp", fill = fill))+
   geom_tile()+
   scale_fill_gradient(low="white",high="red",oob = scales::squish, limits=quantile(dt[[fill]], probs=c(.01, .99)))+
+   ggtitle((bquote(EdU^{"+"}~ Medians~(m["e,l"]*"-"*m["e.,."])~After~RUVIII~Normalization~with ~Plate~Unit~of~Study)))+
+  facet_grid(k~., labeller = labeller(k = label_both))+
+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.6)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(.4)), plot.title = element_text(size = rel(.7)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)),panel.grid.major = element_line(linetype = 'blank'),panel.background = element_rect(fill = "dimgray"))
+suppressWarnings(print(p))
+
+```
+
+
+```{r, fig.width=5, fig.height=4}
+
+fill <- "Mel"
+titleExpression <- expression(EdU^{"+"}~ MADs~(M["e,l"]))
+dt <- l1MEPs
+limits <- quantile(dt[[fill]], probs=c(.01, .99))
+                 
+p <- ggplot(dt, aes_string(x="Ligand", y="ECMp", fill = fill))+
+  geom_tile()+
+  scale_fill_gradient(low="white",high="red",oob = scales::squish,limits=quantile(dt[[fill]], probs=c(.01, .99)))+
+  ggtitle(titleExpression)+
+  xlab("")+ylab("")+
   #guides(fill=FALSE)+
-   ggtitle((bquote(EdU^{"+"}~ Medians~(m["e,l"]*"-"*m["e.,."])~After~NaiveRUV2~Normalization~with ~Plate~Unit~of~Study)))+
-  facet_grid(k~nu, labeller = labeller(nu = label_both, k = label_both))+
-theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.6)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(.5)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)),panel.grid.major = element_line(linetype = 'blank'),panel.background = element_rect(fill = "dimgray"))
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.6)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(.5)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)),panel.grid.major = element_line(linetype = 'blank'),panel.background = element_rect(fill = "dimgray"))
+suppressWarnings(print(p))
+```
+
+```{r, fig.width=4.5}
+
+dt <- nYEdUPlatek
+
+p <- ggplot(dt, aes_string(x="Ligand", y="ECMp", fill = fill))+
+  geom_tile()+
+  scale_fill_gradient(low="white",high="red",oob = scales::squish, limits=quantile(dt[[fill]], probs=c(.01, .99)))+
+   ggtitle((bquote(EdU^{"+"}~ MADs~(M["e,l"]*"-"*M["e.,."])~After~RUVIII~Normalization~with ~Plate~Unit~of~Study)))+
+  facet_grid(k~., labeller = labeller(k = label_both))+
+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.6)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(.4)), plot.title = element_text(size = rel(.7)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)),panel.grid.major = element_line(linetype = 'blank'),panel.background = element_rect(fill = "dimgray"))
 suppressWarnings(print(p))
 
 ```

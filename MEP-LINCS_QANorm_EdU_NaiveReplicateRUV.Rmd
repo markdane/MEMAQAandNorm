@@ -23,8 +23,8 @@ plotLEHmap <- function(dt, fill, titleExpression){
   suppressWarnings(print(p))
 }
 
-medianNaiveRUV2 <- function(nu, Y, cIdx, k){
-  nY <- naiveRandRUV(Y, cIdx, nu, k)
+medianNaiveReplicateRUV2 <- function(k, Y, cIdx, scIdx){
+  nY <- naiveReplicateRUV(Y, cIdx, scIdx, k)$cY
   #Median summarize the normalized values
   #melt matrix to have ECMp and Ligand columns
   nYm <- melt(nY, varnames=c("BWL","SE"))
@@ -41,8 +41,8 @@ medianNaiveRUV2 <- function(nu, Y, cIdx, k){
   return(nYm)
 }
 
-madNaiveRUV2 <- function(nu, Y, cIdx, k){
-  nY <- naiveRandRUV(Y, cIdx, nu, k)
+madNaiveReplicateRUV2 <- function(k, Y, cIdx, scIdx){
+  nY <- naiveReplicateRUV(Y, cIdx, scIdx, k)$cY
   #MAD summarize the normalized values
   #melt matrix to have ECMp and Ligand columns
   nYm <- melt(nY, varnames=c("BWL","SE"))
@@ -94,8 +94,9 @@ plotCenteredBoxes <- function(dt, value, groupBy, colourBy=NULL, titleExpression
 }
 
 source("MEPLINCSFunctions.R")
-supportingPlots = FALSE
-runRUV2S = TRUE
+supportingPlots <- FALSE
+runRUV2S <-TRUE
+runRep <- TRUE
 
 
 ```
@@ -159,8 +160,8 @@ m.. <- median(l1MEPs$mel, na.rm = TRUE)
 M.. <- median(l1MEPs$Mel, na.rm = TRUE)
 ```
 
-```{r RUV2+Shrinkage, eval=runRUV2S}
-#Unit of study is array so there are 64 'samples'of 594 spots, no replicates
+```{r ReplicateRUV, eval=runRep}
+#Unit of study is array so there are 64 'samples'of 594 spots with 8 replicates
 #Order the spot level data by plate, well, spot number
 #Create a spot assignment that works with rotated B row arrays
 l3$RSpot <- l3$Spot
@@ -177,6 +178,19 @@ l3EdUm <- l3EdUc[,grep("BWL",colnames(l3EdUc), value=TRUE, invert=TRUE), with=FA
 #YEdU is a numeric matrix of the raw logit transformed EdU responses 
 #of each spot extracted from the l3 dataset
 YEdU <- matrix(unlist(l3EdUm), nrow=nrow(l3EdUm), dimnames=list(l3EdUc$BWL, colnames(l3EdUm)))
+
+#Set up replicate index matrix with A03 wells as replicates
+replicateWells <- which(grepl("A03",rownames(YEdU)))
+scIdx <- matrix(-1, 57, 8)
+c <- 1
+scIdx[1,] <- replicateWells
+
+for (r in 1:nrow(YEdU)){
+  if(r %in% replicateWells)
+    next
+  c <- c+1
+  scIdx[c,1] <- r
+}
 
 ```
 ---
@@ -204,96 +218,31 @@ plotLEHmap(l1MEPs, fill="Mel", titleExpression)
 
 ```
 
-###NaiveRandRUV with Plate as Unit of Study
-
-In the following plots naiveRUV-2 normalization is applied to the EdU signal of all spots with the plate as the unit of study. This creates an 8x5552 matrix of EdU+ spot values. The 694 spots in the A03 control wells of each plate are designated as negative controls. The faceted plots show normalizatins at various nu and k values.
-
 ```{r}
-#Setup data with plate as the unit
-#There are 8 'samples' with 694 controls
-#Order the spot level data by plate, well, spot number
-#Add in ligand and ECMp names so they will carry through the normalization
-#l3$WLSE <- paste(l3$Well, l3$Ligand,l3$RSpot,l3$ECMp,sep="_")
-l3$WSE <- paste(l3$Well, l3$RSpot,l3$ECMp,sep="_")
-#Cast to get mel values by barcode by well+Spot+ECMp
-#Use the names to hold the spot contents
-#Coerce missing values to have near 0 proliferation signals
-l3EdUPlateC <- dcast(l3, Barcode~WSE, value.var="EdUmel",fill = log2(.01/(1-.01)))
-#Remove the Barcode column and use it as rownames in the matrix
-l3EdUPlateM <- l3EdUPlateC[,grep("Barcode",colnames(l3EdUPlateC), value=TRUE, invert=TRUE), with=FALSE]
-YEdUPlate <- matrix(unlist(l3EdUPlateM), nrow=nrow(l3EdUPlateM), dimnames=list(l3EdUPlateC$Barcode, colnames(l3EdUPlateM)))
 
-```
-
-```{r}
-#Use YEdUPlate as the input. It is an 8x5552 matrix with barcode rownames
-#and Well_SpotNumber_ECMp column names.
-
-medianNaiveRUV2Plate <- function(nu, Y, cIdx, k){
-  #browser()
-  nY <- naiveRandRUV(Y, cIdx, nu, k)
-  #melt matrix to have ECMp and Ligand columns
-  nYm <- melt(nY, varnames=c("Barcode","WSE"))
-  #Extract ECMp and Well values into separate columns
-  nYm$ECMp <- sub("([[:alnum:]]*_){2}","",nYm$WSE)
-  nYm$Well <- strsplit2(nYm$WSE,split="_")[,1]
-
-  #Median summarize by MEP
-  nYm <- data.table(nYm)
-  nYm <- nYm[, WSE := NULL]
-  nYm <- nYm[,list(Value = median(value)), by="Barcode,Well,ECMp"]
-  return(nYm)
-}
-
-madNaiveRUV2Plate <- function(nu, Y, cIdx, k){
-  #browser()
-  nY <- naiveRandRUV(Y, cIdx, nu, k)
-  #melt matrix to have ECMp and Ligand columns
-  nYm <- melt(nY, varnames=c("Barcode","WSE"))
-  #Extract ECMp and Well values into separate columns
-  nYm$ECMp <- sub("([[:alnum:]]*_){2}","",nYm$WSE)
-  nYm$Well <- strsplit2(nYm$WSE,split="_")[,1]
-
-  #MAD summarize the normalized values by MEP
-  nYm <- data.table(nYm)
-  nYm <- nYm[, WSE := NULL]
-  nYM <- nYm[,list(Value = mad(value)), by="Barcode,Well,ECMp"]
-  return(nYM)
-}
-```
-
-```{r}
-nYEdUPlateList <- lapply(c(2,3,4,5), function(k, YEdUPlate, cIdx, mValue, MValue){
-  nuYEdUList <- lapply(c(1e-2,1e-1,1), function(nu, k, YEdU, cIdx, mValue, MValue){
-    #browser()
-    nYEdUm <- medianNaiveRUV2Plate(nu, YEdU, cIdx, k)
+nYEdUList <- lapply(1:7, function(k, YEdU, cIdx, scIdx, mValue, MValue){
+    #Normalize the spot level data then median summarize
+    nYEdUm <- medianNaiveReplicateRUV2(k, YEdU, cIdx, scIdx)
     setnames(nYEdUm, "Value", "mel")
-    nYEdUM <- madNaiveRUV2Plate(nu, YEdU, cIdx, k)
+    #Normalize the spot level data then MAD summarize
+    nYEdUM <- madNaiveReplicateRUV2(k, YEdU, cIdx, scIdx)
     setnames(nYEdUM, "Value", "Mel")
-    setkey(nYEdUm,Barcode,Well,ECMp)
-    setkey(nYEdUM,Barcode,Well,ECMp)
+    setkey(nYEdUm,Barcode,MEP,ECMp,Ligand)
+    setkey(nYEdUM, Barcode,MEP,ECMp,Ligand)
     nYEdU <- merge(nYEdUm, nYEdUM)
-    nYEdU$BW <- paste(nYEdU$Barcode,nYEdU$Well, sep="_")
-    setkey(nYEdU,BW)
-    BWL <- unique(l3[,.(BW,Ligand)])
-    setkey(BWL,BW)
-    nYEdU <- merge(nYEdU, BWL)
-    nYEdU$MEP <- paste(nYEdU$ECMp,nYEdU$Ligand, sep="_")
-    nYEdU <- nYEdU[,BW :=NULL]
-
     #Add margin values
     nYEdU <- addMarginValues(dt=nYEdU, mValue="mel",MValue="Mel")
     nYEdU$k <- k
-    nYEdU$nu <- nu
     return(nYEdU)
-  }, k=k, YEdU=YEdUPlate, cIdx=cIdx, mValue="mel", MValue="Mel")
-  vnuYEdUDT <- rbindlist(nuYEdUList)
-}, YEdUPlate=YEdUPlate, cIdx=which(grepl("A03",colnames(YEdUPlate))), mValue="mel", MValue="Mel")
+}, YEdU=YEdU, cIdx=1:ncol(YEdU), scIdx=scIdx, mValue="mel", MValue="Mel")
 
-nYEdUPlatekn <- rbindlist(nYEdUPlateList)
+#nYEdUk is the RUV2 normalized EdU responses at different k levels
+#using the array as the unit of study
+#All spots are identified as controls
+
+nYEdUArrayk <- rbindlist(nYEdUList)
 
 ```
-
 
 ```{r, fig.width=4.5, fig.height=3}
 groupBy <- "ECMp"
@@ -304,26 +253,29 @@ p <- ggplot(l1MEPs, aes_string(x=groupBy, y=value))+
   geom_boxplot()+ 
   ggtitle(titleExpression)+
   xlab("")+ylab("")+
-  ylim(-6,4)+
+  ylim(-7,7)+
   guides(fill=FALSE)+
   theme_grey(base_size = 12, base_family = "")+
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.6)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(.5)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.5)))
 suppressWarnings(print(p))
 ```
 
+###NaiveReplicateRUV2 with Array as Unit of Study
+
+In the following plots naiveReplicateRUV-2 normalization is applied to the EdU signal of all spots with an array as the unit of study. The input data is a 64x694 matrix of logit transformed EdU+ values. The A03 FBS wells are designated as replicates. All spots are designated as negative controls. The faceted plots show various values of the nu and k parameters.
+
 ```{r}
 
-dt <- nYEdUPlatekn
-
+dt <- nYEdUArrayk
 p <- ggplot(dt,aes_string(x=groupBy, y=value))+
   geom_boxplot()+ 
-  ggtitle(bquote(EdU^{"+"}~ Medians~(m["e,l"]*"-"*m[".,l"])~After~NaiveRUV2~Normalization~with ~Plate~Unit~of~Study))+
+  ggtitle(bquote(EdU^{"+"}~ Medians~(m["e,l"]*"-"*m[".,l"])~After~NaiveReplicateRUV2~Normalization~with ~Array~Unit~of~Study))+
   xlab("")+ylab("")+
-  ylim(-6,4)+
+  ylim(-7,7)+
   guides(fill=FALSE)+
   theme_grey(base_size = 12, base_family = "")+
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.6)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.5)))+
-  facet_grid(k~nu, labeller = labeller(nu = label_both, k = label_both))
+  facet_grid(k~., labeller = labeller(k = label_both))
 suppressWarnings(print(p))
 ```
 
@@ -336,7 +288,7 @@ p <- ggplot(l1MEPs, aes_string(x=groupBy, y=value, colour=colourBy))+
   geom_boxplot()+ 
   ggtitle(titleExpression)+
   xlab("")+ylab("")+
-  ylim(-6,4)+
+  ylim(-7,7)+
   guides(fill=FALSE)+
   theme_grey(base_size = 12, base_family = "")+
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.6)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(.5)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.5)))
@@ -345,17 +297,16 @@ suppressWarnings(print(p))
 
 ```{r}
 
-dt <- nYEdUPlatekn
-
+dt <- nYEdUArrayk
 p <- ggplot(dt,aes_string(x=groupBy, y=value, colour=colourBy))+
   geom_boxplot()+ 
-  ggtitle(bquote(EdU^{"+"}~ Medians~(m["e,l"]*"-"*m["e.,."])~After~NaiveRUV2~Normalization~with ~Plate~Unit~of~Study))+
+  ggtitle(bquote(EdU^{"+"}~ Medians~(m["e,l"]*"-"*m["e.,."])~After~NaiveReplicateRUV2~Normalization~with ~Array~Unit~of~Study))+
   xlab("")+ylab("")+
-  ylim(-6,4)+
+  ylim(-7,7)+
   guides(fill=FALSE)+
   theme_grey(base_size = 12, base_family = "")+
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.6)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.5)))+
-  facet_grid(k~nu, labeller = labeller(nu = label_both, k = label_both))
+  facet_grid(k~., labeller = labeller(k = label_both))
 suppressWarnings(print(p))
 ```
 
@@ -366,27 +317,25 @@ fill <- "mel"
 titleExpression <- expression(EdU^{"+"}~ Medians~(m["e,l"]))
 dt <- l1MEPs
 limits <- quantile(dt[[fill]], probs=c(.01, .99))
-                 
+
 p <- ggplot(dt, aes_string(x="Ligand", y="ECMp", fill = fill))+
   geom_tile()+
   scale_fill_gradient(low="white",high="red",oob = scales::squish,limits=quantile(dt[[fill]], probs=c(.01, .99)))+
   ggtitle(titleExpression)+
   xlab("")+ylab("")+
-  #guides(fill=FALSE)+
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.6)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(.5)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)),panel.grid.major = element_line(linetype = 'blank'),panel.background = element_rect(fill = "dimgray"))
 suppressWarnings(print(p))
 ```
 
 ```{r}
-dt <- nYEdUPlatekn
+dt <- nYEdUArrayk
 
 p <- ggplot(dt, aes_string(x="Ligand", y="ECMp", fill = fill))+
   geom_tile()+
   scale_fill_gradient(low="white",high="red",oob = scales::squish, limits=quantile(dt[[fill]], probs=c(.01, .99)))+
-  #guides(fill=FALSE)+
-   ggtitle((bquote(EdU^{"+"}~ Medians~(m["e,l"]*"-"*m["e.,."])~After~NaiveRUV2~Normalization~with ~Plate~Unit~of~Study)))+
-  facet_grid(k~nu, labeller = labeller(nu = label_both, k = label_both))+
-theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.6)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(.5)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)),panel.grid.major = element_line(linetype = 'blank'),panel.background = element_rect(fill = "dimgray"))
+  ggtitle((bquote(EdU^{"+"}~ Medians~(m["e,l"]*"-"*m["e.,."])~After~NaiveReplicateRUV2~Normalization~with ~Array~Unit~of~Study)))+
+  facet_grid(k~., labeller = labeller(k = label_both))+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.6)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(.5)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)),panel.grid.major = element_line(linetype = 'blank'),panel.background = element_rect(fill = "dimgray"))
 suppressWarnings(print(p))
 
 ```
