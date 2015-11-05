@@ -60,17 +60,13 @@ by="Barcode,Well,Spot"]
 
 if(x[["StainingSet"]] == "SS2"){
   l3$EdUmel <- l1[,list(EdUmel = median(Nuclei_PA_Gated_EduPositiveLogit, na.rm=TRUE)),by=.(Barcode,Well,Spot)][,EdUmel]
-  l1MEPs <- l1[,list(mel = median(Nuclei_PA_Gated_EduPositiveLogit, na.rm = TRUE),
-                     Mel = mad(Nuclei_PA_Gated_EduPositiveLogit, na.rm= TRUE)),
-               by="Barcode,Well,Ligand,ECMp,MEP"]
-  
 } else if (x[["StainingSet"]] == "SS3"){
   l3$LineageRatiomel <- l1[,list(LineageRatiomel = median(Cytoplasm_PA_Intensity_LineageRatio, na.rm=TRUE)),by=.(Barcode,Well,Spot)][,LineageRatiomel]
-  l1MEPs <- l1[,list(mel = median(Cytoplasm_PA_Intensity_LineageRatio, na.rm = TRUE),
-                     Mel = mad(Cytoplasm_PA_Intensity_LineageRatio, na.rm= TRUE)),
-               by="Barcode,Well,Ligand,ECMp,MEP"]
 }
 
+l1MEPs <- l3[,list(mel = median(eval(parse(text=paste0(x[["Signal"]],"mel")))),
+                Mel = mad(eval(parse(text=paste0(x[["Signal"]],"mel"))))),
+               by="Barcode,Well,Ligand,ECMp,MEP"]
 #l1MEPS is the data.table of the MEP level, raw, transformed responses
 l1MEPs <- addMarginValues(l1MEPs,"mel","Mel")
 
