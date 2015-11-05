@@ -1,11 +1,11 @@
 library("rmarkdown")
 library("ruv")
 
-plotLEHmap <- function(dt, fill, titleExpression){
+plotLEHmap <- function(dt, fill, titleExpression, limits){
   p <- ggplot(dt, aes_string(x="Ligand", y="ECMp", fill = fill))+
     geom_tile()+
     scale_fill_gradient(low="white",high="red",oob = scales::squish,
-                        limits=(quantile(dt[[fill]], probs=c(.02, .98), na.rm=TRUE)))+
+                        limits=limits)+
     ggtitle(titleExpression)+
     xlab("")+ylab("")+
     guides(fill=FALSE)+
@@ -138,7 +138,7 @@ addMarginValues <- function(dt, mValue, MValue){
   return(dtmm)
 }
 
-plotCenteredBoxes <- function(dt, value, groupBy, colourBy=NULL, titleExpression){
+plotCenteredBoxes <- function(dt, value, groupBy, colourBy=NULL, titleExpression, yLimits=NULL){
   
   if(is.null(colourBy))  p <- ggplot(dt,aes_string(x=groupBy, y=value))
   else p <- ggplot(dt,aes_string(x=groupBy, y=value, colour=colourBy))
@@ -147,6 +147,7 @@ plotCenteredBoxes <- function(dt, value, groupBy, colourBy=NULL, titleExpression
     ggtitle(titleExpression)+
     xlab("")+ylab("")+
     guides(fill=FALSE)+
+    coord_cartesian(ylim=yLimits)+
     theme_grey(base_size = 12, base_family = "")+
     theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(1)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(1)))
   suppressWarnings(print(p))
@@ -214,15 +215,15 @@ madNaiveRUV2Plate <- function(nu, Y, cIdx, k){
 
 
 dataFiles <- data.frame(CellLine=rep(c("PC3", "YAPC","MCF7"),each=3),
-                        StainingSet = rep(c("SS2","SS3"), each=9),
-                        Signal=rep(c("EdU","LinRatio"), each=9),
+                        StainingSet = rep(c("SS2","SS3","SS3","SS3","SS3"), each=9),
+                        Signal=rep(c("EdU","LineageRatio","DNA2N","SCC","Ecc"), each=9),
                         Method=c("NaiveRandRUV", "NaiveReplicateRUV","RUV3"),
-                        inputFileName=rep(c("../MEP-LINCS/PC3/SS2/AnnotatedData/PC3_SS2_Level1.txt", "../MEP-LINCS/YAPC/SS2/AnnotatedData/YAPC_SS2_Level1.txt", "../MEP-LINCS/MCF7/SS2/AnnotatedData/MCF7_SS2_Level1.txt","../MEP-LINCS/PC3/SS3/AnnotatedData/PC3_SS3_Level1.txt", "../MEP-LINCS/YAPC/SS3/AnnotatedData/YAPC_SS3_Level1.txt", "../MEP-LINCS/MCF7/SS3/AnnotatedData/MCF7_SS3_Level1.txt"), each=3),
-                        stringsAsFactors = FALSE)[10:18,]
+                        inputFileName=rep(c("../MEP-LINCS/PC3/SS2/AnnotatedData/PC3_SS2_Level1.txt", "../MEP-LINCS/YAPC/SS2/AnnotatedData/YAPC_SS2_Level1.txt", "../MEP-LINCS/MCF7/SS2/AnnotatedData/MCF7_SS2_Level1.txt","../MEP-LINCS/PC3/SS3/AnnotatedData/PC3_SS3_Level1.txt", "../MEP-LINCS/YAPC/SS3/AnnotatedData/YAPC_SS3_Level1.txt", "../MEP-LINCS/MCF7/SS3/AnnotatedData/MCF7_SS3_Level1.txt","../MEP-LINCS/PC3/SS3/AnnotatedData/PC3_SS3_Level1.txt", "../MEP-LINCS/YAPC/SS3/AnnotatedData/YAPC_SS3_Level1.txt", "../MEP-LINCS/MCF7/SS3/AnnotatedData/MCF7_SS3_Level1.txt","../MEP-LINCS/PC3/SS3/AnnotatedData/PC3_SS3_Level1.txt", "../MEP-LINCS/YAPC/SS3/AnnotatedData/YAPC_SS3_Level1.txt", "../MEP-LINCS/MCF7/SS3/AnnotatedData/MCF7_SS3_Level1.txt","../MEP-LINCS/PC3/SS3/AnnotatedData/PC3_SS3_Level1.txt", "../MEP-LINCS/YAPC/SS3/AnnotatedData/YAPC_SS3_Level1.txt", "../MEP-LINCS/MCF7/SS3/AnnotatedData/MCF7_SS3_Level1.txt"), each=3),stringsAsFactors = FALSE)
+
 x <- dataFiles
 
 callQANorm <- function(x){
-  render(paste0("Mep-LINCS_QANorm_",x[["Signal"]],"_",x[["Method"]],".Rmd"),
+  render(paste0("Mep-LINCS_QANorm.Rmd"),
          output_file = paste0("Mep-LINCS_QANorm_",x[["CellLine"]],"_",x[["Signal"]],"_",x[["Method"]],".html"),
          output_format = "html_document") 
 }

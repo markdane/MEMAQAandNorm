@@ -1,0 +1,4 @@
+
+###NaiveRandRUV with Plate as Unit of Study
+
+In the following plots naiveRUV-2 normalization is applied to the `r x[["Signal"]]` signal of all spots with the plate as the unit of study. This creates an 8x5552 matrix of `r x[["Signal"]]` spot values. The 694 spots in the A03 control wells of each plate are designated as negative controls. The faceted plots show normalizations at various nu and k values.

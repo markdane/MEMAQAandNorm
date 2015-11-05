@@ -1,0 +1,398 @@
+---
+output: html_document
+---
+
+```{r global_options_Setup, include=FALSE}
+#Author: Mark Dane, copyright 2015
+knitr::opts_chunk$set(fig.width=12, fig.height=8,
+                      echo=FALSE, warning=FALSE, message=FALSE)
+
+source("MEPLINCSFunctions.R")
+
+library("ggplot2")
+library("reshape2")
+library("data.table")
+library("limma")
+library("MEMA")
+library("grid")
+library("knitr")
+library("gplots")
+library("RColorBrewer")
+library("RUVnormalize")
+
+#Read in file based on name in dataframe
+l1 <- fread(x[["inputFileName"]], showProgress = FALSE)
+
+#Keep the control wells separate
+l1$Ligand[l1$Ligand=="FBS"] <- paste(l1$Ligand[l1$Ligand=="FBS"],"C",as.numeric(factor(l1$Barcode[l1$Ligand=="FBS"])),sep="")
+l1$MEP <- paste(l1$ECMp,l1$Ligand,sep="_")
+
+#Delete the fiducial and blank spots
+setkey(l1, "ECMp")
+l1 <- l1[!"fiducial"]
+l1 <- l1[!"blank"]
+
+#Logit transform DNA2NProportion
+#logit(p) = log[p/(1-p)]
+DNA2NImpute <- l1$Nuclei_PA_Cycle_DNA2NProportion
+DNA2NImpute[DNA2NImpute==0] <- .01
+DNA2NImpute[DNA2NImpute==1] <- .99
+l1$Nuclei_PA_Cycle_DNA2NProportionLogit <- log2(DNA2NImpute/(1-DNA2NImpute))
+
+#logit transform eccentricity
+EccImpute <- l1$Nuclei_CP_AreaShape_Eccentricity
+EccImpute[EccImpute==0] <- .01
+EccImpute[EccImpute==1] <- .99
+l1$Nuclei_PA_AreaShape_EccentricityLogit <- log2(EccImpute/(1-EccImpute))
+
+
+#Create spot level dataset
+l3 <- l1[,list(Ligand=unique(Ligand), LigandAnnotID=unique(LigandAnnotID),
+               ECMp=unique(ECMp), ECMpAnnotID=unique(ECMpAnnotID),
+               MEP=unique(MEP),
+               Row=unique(Row), Column = unique(Column), Block=unique(Block), ID=unique(ID),
+               ArrayRow=unique(ArrayRow), ArrayColumn=unique(ArrayColumn),
+               DNA2Nmel = median(Nuclei_PA_Cycle_DNA2NProportionLogit, na.rm=TRUE),
+               SCCmel = as.numeric(median(Spot_PA_SpotCellCount, na.rm=TRUE)),
+               Eccmel = median(Nuclei_PA_AreaShape_EccentricityLogit)
+),
+by="Barcode,Well,Spot"]
+
+if(x[["StainingSet"]] == "SS2"){
+  l3$EdUmel <- l1[,list(EdUmel = median(Nuclei_PA_Gated_EduPositiveLogit, na.rm=TRUE)),by=.(Barcode,Well,Spot)][,EdUmel]
+  l1MEPs <- l1[,list(mel = median(Nuclei_PA_Gated_EduPositiveLogit, na.rm = TRUE),
+                     Mel = mad(Nuclei_PA_Gated_EduPositiveLogit, na.rm= TRUE)),
+               by="Barcode,Well,Ligand,ECMp,MEP"]
+  
+} else if (x[["StainingSet"]] == "SS3"){
+  l3$LineageRatiomel <- l1[,list(LineageRatiomel = median(Cytoplasm_PA_Intensity_LineageRatio, na.rm=TRUE)),by=.(Barcode,Well,Spot)][,LineageRatiomel]
+  l1MEPs <- l1[,list(mel = median(Cytoplasm_PA_Intensity_LineageRatio, na.rm = TRUE),
+                     Mel = mad(Cytoplasm_PA_Intensity_LineageRatio, na.rm= TRUE)),
+               by="Barcode,Well,Ligand,ECMp,MEP"]
+}
+
+#l1MEPS is the data.table of the MEP level, raw, transformed responses
+l1MEPs <- addMarginValues(l1MEPs,"mel","Mel")
+
+#calculate the overall median and MAD for the staining set
+m.. <- median(l1MEPs$mel, na.rm = TRUE)
+M.. <- median(l1MEPs$Mel, na.rm = TRUE)
+
+```
+
+```{r createMatrices}
+#For an array  Unit of study there are 64 'samples'of 594 spots with 8 replicates
+#Create a spot assignment that recognizes rotated B row arrays
+l3$RSpot <- l3$Spot
+l3$RSpot[grepl("B",l3$Well)] <- 701-l3$RSpot[grepl("B",l3$Well)]
+#Add in ligand and ECMp names so they will carry through the normalization
+l3$BWL <- paste(l3$Barcode,l3$Well,l3$Ligand,sep="_")
+l3$SE <- paste(l3$RSpot,l3$ECMp,sep="_")
+l3$BW <- paste(l3$Barcode,l3$Well,sep="_")
+l3$WSE <- paste(l3$Well, l3$RSpot,l3$ECMp,sep="_")
+
+#Cast to get mel values by barcode_well_ligand rows and spot columns
+#Coerce missing values to have near 0 values
+if(x[["Signal"]] %in% c("EdU", "DNA2N", "Ecc")){
+  fill <- log2(.01/(1-.01))
+} else if(x[["Signal"]] %in% c("LineageRatio", "SCC")){
+  fill <- 0
+} else(stop(paste("Need fill value for",x[["Signal"]]," signal"))) 
+
+l3c <- dcast(l3, BWL~SE, value.var=paste0(x[["Signal"]],"mel"), fill = fill)
+#Remove the BWL column and use it as rownames in the matrix
+l3m <- l3c[,grep("BWL",colnames(l3c), value=TRUE, invert=TRUE), with=FALSE]
+#Y is a numeric matrix of the raw transformed responses 
+#of each spot extracted from the l3 dataset
+YArray <- matrix(unlist(l3m), nrow=nrow(l3m), dimnames=list(l3c$BWL, colnames(l3m)))
+
+#Set up replicate index matrix with A03 wells as replicates
+replicateWells <- which(grepl("A03",rownames(YArray)))
+scIdx <- matrix(-1, 57, 8)
+c <- 1
+scIdx[1,] <- replicateWells
+
+for (r in 1:nrow(YArray)){
+  if(r %in% replicateWells)
+    next
+  c <- c+1
+  scIdx[c,1] <- r
+}
+
+#Setup data with plate as the unit
+#There are 8 'samples' with 694 controls
+#Order the spot level data by plate, well, spot number
+
+#Cast to get mel values with Barcode rows and well+Spot+ECMp columns
+#Use the names to hold the spot contents
+#Coerce missing values to have near 0 proliferation signals
+l3PlateC <- dcast(l3, Barcode~WSE, value.var=paste0(x[["Signal"]],"mel"),fill = fill)
+#Remove the Barcode column and use it as rownames in the matrix
+l3m <- l3PlateC[,grep("Barcode",colnames(l3PlateC), value=TRUE, invert=TRUE), with=FALSE]
+YPlate <- matrix(unlist(l3m), nrow=nrow(l3m), dimnames=list(l3PlateC$Barcode, colnames(l3m)))
+```
+
+---
+title: "MEP-LINCS `r x[["CellLine"]]` `r x[["StainingSet"]]` `r x[["Signal"]]` `r x[["Method"]]` Normalization"
+date: "`r Sys.Date()`"
+---
+
+
+```{r, eval=TRUE, fig.width=4.5, fig.height=4}
+
+limits=quantile(l1MEPs[["mel"]], probs=c(.005, .995), na.rm=TRUE)
+titleExpression <- bquote(.(x[["Signal"]])~Medians~(m["e,l"]))
+plotLEHmap(l1MEPs, fill="mel", titleExpression, limits)
+
+limits=quantile(l1MEPs[["Mel"]], probs=c(.005, .995), na.rm=TRUE)
+titleExpression <- bquote(.(x[["Signal"]])~MADs~(M["e,l"]))
+plotLEHmap(l1MEPs, fill="Mel", titleExpression, limits)
+
+
+```
+
+
+```{r, child='NaiveRandRUVText.Rmd', eval=x[["Method"]]=="NaiveRandRUV"}
+```
+
+```{r, child='NaiveReplicateRUVText.Rmd', eval=x[["Method"]]=="NaiveReplicateRUV"}
+```
+
+```{r, child='RUV3Text.Rmd', eval=x[["Method"]]=="RUV3"}
+```
+
+
+```{r, eval=x[["Method"]]=="NaiveReplicateRUV"}
+
+nYkList <- lapply(1:7, function(k, Y, cIdx, scIdx, mValue, MValue){
+  #Normalize the spot level data then median summarize
+  nYm <- medianNaiveReplicateRUV2(k, Y, cIdx, scIdx)
+  setnames(nYm, "Value", "mel")
+  #Normalize the spot level data then MAD summarize
+  nYM <- madNaiveReplicateRUV2(k, Y, cIdx, scIdx)
+  setnames(nYM, "Value", "Mel")
+  setkey(nYm,Barcode,MEP,ECMp,Ligand)
+  setkey(nYM, Barcode,MEP,ECMp,Ligand)
+  nY <- merge(nYm, nYM)
+  #Add margin values
+  nY <- addMarginValues(dt=nY, mValue="mel",MValue="Mel")
+  nY$k <- k
+  return(nY)
+}, Y=YArray, cIdx=1:ncol(YArray), scIdx=scIdx, mValue="mel", MValue="Mel")
+
+nY <- rbindlist(nYkList)
+
+```
+
+
+```{r, eval=x[["Method"]]=="NaiveRandRUV"}
+
+nYknList <- lapply(c(2,3,4,5), function(k, YPlate, cIdx, mValue, MValue){
+  nuYList <- lapply(c(1e-2,1e-1,1), function(nu, k, Y, cIdx, mValue, MValue){
+    #browser()
+    nYm <- medianNaiveRUV2Plate(nu, Y, cIdx, k)
+    setnames(nYm, "Value", "mel")
+    nYM <- madNaiveRUV2Plate(nu, Y, cIdx, k)
+    setnames(nYM, "Value", "Mel")
+    setkey(nYm,Barcode,Well,ECMp)
+    setkey(nYM,Barcode,Well,ECMp)
+    nY <- merge(nYm, nYM)
+    nY$BW <- paste(nY$Barcode,nY$Well, sep="_")
+    setkey(nY,BW)
+    BWL <- unique(l3[,.(BW,Ligand)])
+    setkey(BWL,BW)
+    nY <- merge(nY, BWL)
+    nY$MEP <- paste(nY$ECMp,nY$Ligand, sep="_")
+    nY <- nY[,BW :=NULL]
+    
+    #Add margin values
+    nY <- addMarginValues(dt=nY, mValue="mel",MValue="Mel")
+    nY$k <- k
+    nY$nu <- nu
+    return(nY)
+  }, k=k, Y=YPlate, cIdx=cIdx, mValue="mel", MValue="Mel")
+  vnuYDT <- rbindlist(nuYList)
+}, YPlate=YPlate, cIdx=which(grepl("A03",colnames(YPlate))), mValue="mel", MValue="Mel")
+
+nY <- rbindlist(nYknList)
+
+```
+
+```{r, eval=x[["Method"]]=="RUV3"}
+
+nYkList <- lapply(1:4, function(k, Y, M, cIdx, mValue, MValue){
+  #browser()
+  nYm <- medianRUVIIIPlate(k, Y, M, cIdx)
+  setnames(nYm, "Value", "mel")
+  nYM <- madRUVIIIPlate(k, Y, M, cIdx)
+  setnames(nYM, "Value", "Mel")
+  setkey(nYm,Barcode,Well,ECMp)
+  setkey(nYM,Barcode,Well,ECMp)
+  nY <- merge(nYm, nYM)
+  nY$BW <- paste(nY$Barcode,nY$Well, sep="_")
+  setkey(nY,BW)
+  BWL <- unique(l3[,.(BW,Ligand)])
+  setkey(BWL,BW)
+  nY <- merge(nY, BWL)
+  nY$MEP <- paste(nY$ECMp,nY$Ligand, sep="_")
+  nY <- nY[,BW :=NULL]
+  
+  #Add margin values
+  nY <- addMarginValues(dt=nY, mValue="mel",MValue="Mel")
+  nY$k <- k
+  return(nY)
+}, Y=YPlate, M=matrix(1,nrow=nrow(YPlate)), cIdx=which(grepl("A03",colnames(YPlate))), mValue="mel", MValue="Mel")
+
+nY <- rbindlist(nYkList)
+
+```
+
+```{r, fig.height=3}
+groupBy <- "ECMp"
+value <- "mel-m.l"
+colourBy <- "Barcode"
+titleExpression= bquote(.(x[["Signal"]])~Centered~Medians~by~ECMp~(m["e,l"]*"-"*m[".,l"]))
+yLimits=quantile(l1MEPs[["mel"]]-l1MEPs[["m.l"]], probs=c(.005, .995), na.rm=TRUE)
+
+plotCenteredBoxes(dt = l1MEPs, value = value, groupBy = groupBy, titleExpression = titleExpression, yLimits = yLimits)
+
+```
+
+```{r}
+
+yLimits=quantile(nY[["mel"]]-nY[["m.l"]], probs=c(.005, .995), na.rm=TRUE)
+p <- ggplot(nY,aes_string(x=groupBy, y=value))+
+  geom_boxplot()+ 
+  ggtitle(bquote(.(x[["Signal"]])~Medians~(m["e,l"]*"-"*m[".,l"])~After~.(x[["Method"]])~Normalization))+
+  xlab("")+ylab("")+
+  coord_cartesian(ylim=yLimits)+
+  guides(fill=FALSE)+
+  theme_grey(base_size = 12, base_family = "")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.6)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.5)))
+
+if(x[["Method"]] %in% c("NaiveRandRUV")){
+  p <- p +  facet_grid(k~nu, labeller = labeller(nu = label_both, k = label_both))
+} else if (x[["Method"]] %in% c("NaiveReplicateRUV","RUV3")) {
+  p <- p + facet_grid(k~., labeller = labeller(k = label_both))
+}  else(stop(paste("Do not have a plot method for",x[["Method"]],"normalization")))
+
+suppressWarnings(print(p))
+
+```
+
+```{r, fig.height=4}
+groupBy <- "Ligand"
+value <- "mel-me."
+colourBy <- "Barcode"
+titleExpression= bquote(.(x[["Signal"]])~Centered~Medians~by~Ligand~(m["e,l"]*"-"*m["e,."]))
+yLimits=quantile(l1MEPs[["mel"]]-l1MEPs[["me."]], probs=c(.005, .995), na.rm=TRUE)
+
+plotCenteredBoxes(dt = l1MEPs, value = value, groupBy = groupBy, colourBy = "Barcode", titleExpression = titleExpression, yLimits = yLimits)
+
+```
+
+```{r}
+
+yLimits=quantile(nY[["mel"]]-nY[["me."]], probs=c(.005, .995), na.rm=TRUE)
+
+p <- ggplot(nY,aes_string(x=groupBy, y=value, colour=colourBy))+
+  geom_boxplot()+ 
+  ggtitle(bquote(.(x[["Signal"]])~Medians~(m["e,l"]*"-"*m["e,."])~After~.(x[["Method"]])~Normalization))+
+  xlab("")+ylab("")+
+  coord_cartesian(ylim=yLimits)+
+  guides(fill=FALSE)+
+  theme_grey(base_size = 12, base_family = "")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.6)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.5)))
+
+if(x[["Method"]] %in% c("NaiveRandRUV")){
+  p <- p +  facet_grid(k~nu, labeller = labeller(nu = label_both, k = label_both))
+} else if (x[["Method"]] %in% c("NaiveReplicateRUV","RUV3")) {
+  p <- p + facet_grid(k~., labeller = labeller(k = label_both))
+}  else(stop(paste("Do not have a plot method for",x[["Method"]],"normalization")))
+
+suppressWarnings(print(p))
+```
+
+
+```{r, fig.width=5, fig.height=4, eval=FALSE}
+
+dt <- l1MEPs
+fill <- "mel"
+titleExpression <-  bquote(.(x[["Signal"]])~ Medians~(m["e,l"]))
+limits <- quantile(dt[[fill]], probs=c(.005, .995))
+
+plotLEHmap(dt, fill, titleExpression, limits)                
+
+```
+
+```{r, fig.width=9, eval=x[["Method"]]=="NaiveRandRUV", eval=FALSE}
+dt <- nYPlatekn
+limits <- quantile(dt[[fill]], probs=c(.005, .995))
+
+p <- ggplot(dt, aes_string(x="Ligand", y="ECMp", fill = fill))+
+  geom_tile()+
+  scale_fill_gradient(low="white",high="red",oob = scales::squish, limits=limits)+
+  #guides(fill=FALSE)+
+  ggtitle((bquote(.(x[["Signal"]])~(m["e,l"]*"-"*m["e.,."])~After~NaiveRUV2~Normalization~with ~Plate~Unit~of~Study)))+
+  facet_grid(k~nu, labeller = labeller(nu = label_both, k = label_both))+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.6)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(.5)), plot.title = element_text(size = rel(.7)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)),panel.grid.major = element_line(linetype = 'blank'),panel.background = element_rect(fill = "dimgray"))
+suppressWarnings(print(p))
+
+```
+
+
+```{r, fig.width=4.5, eval=x[["Method"]]=="RUV3", eval=FALSE}
+
+dt <- nYPlatek
+limits <- quantile(dt[[fill]], probs=c(.005, .995))
+
+p <- ggplot(dt, aes_string(x="Ligand", y="ECMp", fill = fill))+
+  geom_tile()+
+  scale_fill_gradient(low="white",high="red",oob = scales::squish, limits=limits)+
+  ggtitle(bquote(.(x[["Signal"]])~ Medians~(m["e,l"]*"-"*m["e.,."])~After~RUVIII~Normalization~with ~Plate~Unit~of~Study))+
+  facet_grid(k~., labeller = labeller(k = label_both))+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.5)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(.4)), plot.title = element_text(size = rel(.7)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)),panel.grid.major = element_line(linetype = 'blank'),panel.background = element_rect(fill = "dimgray"))
+suppressWarnings(print(p))
+
+```
+
+
+```{r, fig.width=5, fig.height=4, eval=FALSE}
+
+dt <- l1MEPs
+fill <- "Mel"
+limits <- quantile(dt[[fill]], probs=c(.005, .995))
+titleExpression <- bquote(.(x[["Signal"]])~~ MADs~(M["e,l"]))
+
+plotLEHmap(dt, fill, titleExpression, limits)
+
+```
+
+```{r, fig.width=9, eval=x[["Method"]]=="NaiveRandRUV", eval=FALSE}
+
+dt <- nYPlatekn
+limits <- quantile(dt[[fill]], probs=c(.005, .995))
+
+p <- ggplot(dt, aes_string(x="Ligand", y="ECMp", fill = fill))+
+  geom_tile()+
+  scale_fill_gradient(low="white",high="red",oob = scales::squish, limits=limits)+
+  ggtitle( bquote(.(x[["Signal"]])~ MADs~(M["e,l"]*"-"*M["e.,."])~After~NaiveRUV2~Normalization~with ~Plate~Unit~of~Study))+
+  facet_grid(k~nu, labeller = labeller(nu = label_both, k = label_both))+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.5)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(.4)), plot.title = element_text(size = rel(.7)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)),panel.grid.major = element_line(linetype = 'blank'),panel.background = element_rect(fill = "dimgray"))
+suppressWarnings(print(p))
+
+```
+
+```{r, fig.width=4.5, eval=x[["Method"]]=="RUV3", eval=FALSE}
+
+dt <- nYPlatek
+limits <- quantile(dt[[fill]], probs=c(.005, .995))
+
+p <- ggplot(dt, aes_string(x="Ligand", y="ECMp", fill = fill))+
+  geom_tile()+
+  scale_fill_gradient(low="white",high="red",oob = scales::squish, limits=limits)+
+  ggtitle( bquote(.(x[["Signal"]])~ MADs~(M["e,l"]*"-"*M["e.,."])~After~RUVIII~Normalization~with ~Plate~Unit~of~Study))+
+  facet_grid(k~., labeller = labeller(k = label_both))+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.5)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(.4)), plot.title = element_text(size = rel(.7)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)),panel.grid.major = element_line(linetype = 'blank'),panel.background = element_rect(fill = "dimgray"))
+suppressWarnings(print(p))
+
+```
