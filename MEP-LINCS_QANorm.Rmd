@@ -63,13 +63,9 @@ if(x[["StainingSet"]] == "SS2"){
   l3$EdUmel <- l1[,list(EdUmel = median(Nuclei_PA_Gated_EduPositiveLogit, na.rm=TRUE)),by=.(Barcode,Well,Spot)][,EdUmel]
   l3 <- l3[, EdURel := calcResidual(EdUmel), by="MEP"]
 } else if (x[["StainingSet"]] == "SS3"){
-  l3$LineageRatiomel <- l1[,list(LineageRatiomel = median(Cytoplasm_PA_Intensity_LineageRatio, na.rm=TRUE)),by=.(Barcode,Well,Spot)][,LineageRatiomel]
-  l3 <- l3[, LineageRatioRel := calcResidual(LineageRatiomel), by="MEP"]
+  l3$LineageRatioLog2mel <- l1[,list(LineageRatioLog2mel = median(Cytoplasm_PA_Intensity_LineageRatioLog2, na.rm=TRUE)),by=.(Barcode,Well,Spot)][,LineageRatioLog2mel]
+  l3 <- l3[, LineageRatioLog2Rel := calcResidual(LineageRatioLog2mel), by="MEP"]
 }
-
-l3 <- l3[, DNA2NRel := calcResidual(DNA2Nmel), by="MEP"]
-l3 <- l3[, SCCRel := calcResidual(SCCmel), by="MEP"]
-l3 <- l3[, EccRel := calcResidual(Eccmel), by="MEP"]
 
 l1MEPs <- l3[,list(mel = median(eval(parse(text=paste0(x[["Signal"]],"mel")))),
                    Mel = mad(eval(parse(text=paste0(x[["Signal"]],"mel"))))),
@@ -98,7 +94,7 @@ l3$WSE <- paste(l3$Well, l3$RSpot,l3$ECMp,sep="_")
 #Coerce missing values to have near 0 values
 if(x[["Signal"]] %in% c("EdU", "DNA2N", "Ecc")){
   fill <- log2(.01/(1-.01))
-} else if(x[["Signal"]] %in% c("LineageRatio", "SCC")){
+} else if(x[["Signal"]] %in% c("LineageRatioLog2", "SCC")){
   fill <- 0
 } else(stop(paste("Need fill value for",x[["Signal"]]," signal"))) 
 

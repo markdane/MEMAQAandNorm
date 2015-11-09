@@ -108,7 +108,10 @@ l3Relm <- l3Relc[,grep("BWL",colnames(l3Relc), value=TRUE, invert=TRUE), with=FA
 YRelArray <- matrix(unlist(l3Relm), nrow=nrow(l3Relm), dimnames=list(l3Relc$BWL, colnames(l3Relm)))
 ```
 
+###SVD Method
 
+Median summarize the cell level data to the spot level.  
+Take the logit of EdU+, DNA2N, Eccentricity (Ecc)
 ```{r, fig.width=4}
 
 s <- svd(YRelArray)
