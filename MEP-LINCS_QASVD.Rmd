@@ -67,8 +67,8 @@ if(x[["StainingSet"]] == "SS2"){
   l3$EdUmel <- l1[,list(EdUmel = median(Nuclei_PA_Gated_EduPositiveLogit, na.rm=TRUE)),by=.(Barcode,Well,Spot)][,EdUmel]
   l3 <- l3[, EdURel := calcResidual(EdUmel), by="MEP"]
 } else if (unique(x[["StainingSet"]]) == "SS3"){
-  l3$LineageRatiomel <- l1[,list(LineageRatiomel = median(Cytoplasm_PA_Intensity_LineageRatio, na.rm=TRUE)),by=.(Barcode,Well,Spot)][,LineageRatiomel]
-  l3 <- l3[, LineageRatioRel := calcResidual(LineageRatiomel), by="MEP"]
+  l3$LineageRatioLog2mel <- l1[,list(LineageRatioLog2mel = median(Cytoplasm_PA_Intensity_LineageRatioLog2, na.rm=TRUE)),by=.(Barcode,Well,Spot)][,LineageRatioLog2mel]
+  l3 <- l3[, LineageRatioLog2Rel := calcResidual(LineageRatioLog2mel), by="MEP"]
 }
 
 l3 <- l3[, DNA2NRel := calcResidual(DNA2Nmel), by="MEP"]
@@ -92,7 +92,7 @@ l3$WSE <- paste(l3$Well, l3$RSpot,l3$ECMp,sep="_")
 #Coerce missing values to have near 0 values
 if(x[["Signal"]] %in% c("EdU", "DNA2N", "Ecc")){
   fill <- log2(.01/(1-.01))
-} else if(unique(x[["Signal"]]) %in% c("LineageRatio", "SCC")){
+} else if(unique(x[["Signal"]]) %in% c("LineageRatioLog2", "SCC")){
   fill <- 0
 } else(stop(paste("Need fill value for",unique(x[["Signal"]])," signal"))) 
 
@@ -108,10 +108,16 @@ l3Relm <- l3Relc[,grep("BWL",colnames(l3Relc), value=TRUE, invert=TRUE), with=FA
 YRelArray <- matrix(unlist(l3Relm), nrow=nrow(l3Relm), dimnames=list(l3Relc$BWL, colnames(l3Relm)))
 ```
 
-###SVD Method
+###SVD Applied to Array Level
 
-Median summarize the cell level data to the spot level.  
-Take the logit of EdU+, DNA2N, Eccentricity (Ecc)
+Singular Value Decomposition is applied to the residuals at the array level as follows.  
+   * Median summarize the cell level data to the spot level.  
+   * Take the logit of EdU$^{+}$, DNA2N, Eccentricity (Ecc) and the log2 of the LineageRatio signals.  
+   * Create residuals by subtracting the median value of the replicates from each replicate value.  
+   * Create an M matrix of residuals that is `r nrow(YRelArray)` rows by `r ncol(YRelArray)` columns. Each row holds residuals for each spot in a MEMA.  
+   * Apply SVD to the M matrix to get u, d and v matrices.  
+   * Plot the eignvector in the column of the v matrix which corresponds to the largest singular value in the d matrix. Plot as heat map of 35 rows and 20 columns.  Missing tiles in the heat map correspond to fiducials and blank spots.    
+
 ```{r, fig.width=4}
 
 s <- svd(YRelArray)
@@ -131,7 +137,8 @@ suppressWarnings(print(p))
 
 ```
 
-```{r, fig.width=8, fig.height=8}
+
+```{r}
 
 #Cast to get mel values with Barcode rows and well+Spot+ECMp columns
 #Use the names to hold the spot contents
@@ -146,6 +153,21 @@ splits <- strsplit2(colnames(l3Relm), split="_")
 vDT <- data.table(Value=s$v[,which.max(s$d)], Well=splits[,1], Spot=as.integer(splits[,2]))
 vDT$ArrayRow <- as.integer(ceiling(vDT$Spot/20))
 vDT$ArrayColumn <- as.integer((vDT$Spot-1) %% 20 +1)
+```
+
+
+###SVD Applied to Plate Level
+
+Singular Value Decomposition is applied to the residuals at the plate level as follows.  
+   * Median summarize the cell level data to the spot level.  
+   * Take the logit of EdU$^{+}$, DNA2N, Eccentricity (Ecc) and the log2 of the LineageRatio signals.  
+   * Create residuals by subtracting the median value of the replicates from each replicate value.  
+   * Create an M matrix of residuals that is `r nrow(YRelPlate)` rows by `r ncol(YRelPlate)` columns. Each row holds residuals for each spot in a two row and four column well plate of MEMAs.  
+   * Apply SVD to the M matrix to get u, d and v matrices.  
+   * Plot the eignvector in the column of the v matrix which corresponds to the largest singular value in the d matrix. Plot as heat maps in two rows and four columns of arrays with 35 rows and 20 columns.  Missing tiles in the heat maps correspond to fiducials and blank spots. The B row of heatmaps are displayed in the same orientation as the A row even though they are physically printed rotated 180 degrees.
+   
+
+```{r, fig.width=8, fig.height=8}
 
 p <- ggplot(vDT, aes(x=ArrayColumn, y=ArrayRow, fill= Value))+
   geom_tile()+
