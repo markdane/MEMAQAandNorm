@@ -45,8 +45,9 @@ EccImpute[EccImpute==0] <- .01
 EccImpute[EccImpute==1] <- .99
 l1$Nuclei_PA_AreaShape_EccentricityLogit <- log2(EccImpute/(1-EccImpute))
 
+#Create spot level dataset and 
+#add Rel, the residual from subtracting the mel from each value
 
-#Create spot level dataset
 l3 <- l1[,list(Ligand=unique(Ligand), LigandAnnotID=unique(LigandAnnotID),
                ECMp=unique(ECMp), ECMpAnnotID=unique(ECMpAnnotID),
                MEP=unique(MEP),
@@ -60,13 +61,19 @@ by="Barcode,Well,Spot"]
 
 if(x[["StainingSet"]] == "SS2"){
   l3$EdUmel <- l1[,list(EdUmel = median(Nuclei_PA_Gated_EduPositiveLogit, na.rm=TRUE)),by=.(Barcode,Well,Spot)][,EdUmel]
+  l3 <- l3[, EdURel := calcResidual(EdUmel), by="MEP"]
 } else if (x[["StainingSet"]] == "SS3"){
   l3$LineageRatiomel <- l1[,list(LineageRatiomel = median(Cytoplasm_PA_Intensity_LineageRatio, na.rm=TRUE)),by=.(Barcode,Well,Spot)][,LineageRatiomel]
+  l3 <- l3[, LineageRatioRel := calcResidual(LineageRatiomel), by="MEP"]
 }
 
+l3 <- l3[, DNA2NRel := calcResidual(DNA2Nmel), by="MEP"]
+l3 <- l3[, SCCRel := calcResidual(SCCmel), by="MEP"]
+l3 <- l3[, EccRel := calcResidual(Eccmel), by="MEP"]
+
 l1MEPs <- l3[,list(mel = median(eval(parse(text=paste0(x[["Signal"]],"mel")))),
-                Mel = mad(eval(parse(text=paste0(x[["Signal"]],"mel"))))),
-               by="Barcode,Well,Ligand,ECMp,MEP"]
+                   Mel = mad(eval(parse(text=paste0(x[["Signal"]],"mel"))))),
+             by="Barcode,Well,Ligand,ECMp,MEP"]
 #l1MEPS is the data.table of the MEP level, raw, transformed responses
 l1MEPs <- addMarginValues(l1MEPs,"mel","Mel")
 
