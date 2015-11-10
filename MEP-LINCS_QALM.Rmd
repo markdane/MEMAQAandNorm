@@ -1,0 +1,178 @@
+---
+output: html_document
+---
+---
+title: "MEP-LINCS `r x[["CellLine"]]` `r x[["StainingSet"]]` `r x[["Signal"]]`  SVD Analysis"
+date: "`r Sys.Date()`"
+---
+
+```{r global_options_Setup, include=FALSE}
+#Author: Mark Dane, copyright 2015
+knitr::opts_chunk$set(fig.width=12, fig.height=8,
+                      echo=FALSE, warning=FALSE, message=FALSE)
+
+#source("MEPLINCSFunctions.R")
+
+library("ggplot2")
+library("reshape2")
+library("data.table")
+library("limma")
+library("MEMA")
+library("grid")
+library("knitr")
+library("gplots")
+library("RColorBrewer")
+library("RUVnormalize")
+
+#Read in file based on name in dataframe
+l1 <- fread(x[["inputFileName"]], showProgress = FALSE)
+
+#Keep the control wells separate
+l1$Ligand[l1$Ligand=="FBS"] <- paste(l1$Ligand[l1$Ligand=="FBS"],"C",as.numeric(factor(l1$Barcode[l1$Ligand=="FBS"])),sep="")
+l1$MEP <- paste(l1$ECMp,l1$Ligand,sep="_")
+
+#Delete the fiducial and blank spots
+setkey(l1, "ECMp")
+l1 <- l1[!"fiducial"]
+l1 <- l1[!"blank"]
+
+#Logit transform DNA2NProportion
+#logit(p) = log[p/(1-p)]
+DNA2NImpute <- l1$Nuclei_PA_Cycle_DNA2NProportion
+DNA2NImpute[DNA2NImpute==0] <- .01
+DNA2NImpute[DNA2NImpute==1] <- .99
+l1$Nuclei_PA_Cycle_DNA2NProportionLogit <- log2(DNA2NImpute/(1-DNA2NImpute))
+
+#logit transform eccentricity
+EccImpute <- l1$Nuclei_CP_AreaShape_Eccentricity
+EccImpute[EccImpute==0] <- .01
+EccImpute[EccImpute==1] <- .99
+l1$Nuclei_PA_AreaShape_EccentricityLogit <- log2(EccImpute/(1-EccImpute))
+
+#Create spot level dataset and 
+#add Rel, the residual from subtracting the mel from each value
+
+l3 <- l1[,list(Ligand=unique(Ligand), LigandAnnotID=unique(LigandAnnotID),
+               ECMp=unique(ECMp), ECMpAnnotID=unique(ECMpAnnotID),
+               MEP=unique(MEP),
+               Row=unique(Row), Column = unique(Column), Block=unique(Block), ID=unique(ID),
+               ArrayRow=unique(ArrayRow), ArrayColumn=unique(ArrayColumn),
+               DNA2Nmel = median(Nuclei_PA_Cycle_DNA2NProportionLogit, na.rm=TRUE),
+               SCCmel = as.numeric(median(Spot_PA_SpotCellCount, na.rm=TRUE)),
+               Eccmel = median(Nuclei_PA_AreaShape_EccentricityLogit)
+),
+by="Barcode,Well,Spot"]
+
+if(x[["StainingSet"]] == "SS2"){
+  l3$EdUmel <- l1[,list(EdUmel = median(Nuclei_PA_Gated_EduPositiveLogit, na.rm=TRUE)),by=.(Barcode,Well,Spot)][,EdUmel]
+  l3 <- l3[, EdURel := calcResidual(EdUmel), by="MEP"]
+  l3 <- l3[, EdUmu := mean(EdUmel,na.rm=TRUE), by="MEP"]
+  
+} else if (unique(x[["StainingSet"]]) == "SS3"){
+  l3$LineageRatioLog2mel <- l1[,list(LineageRatioLog2mel = median(Cytoplasm_PA_Intensity_LineageRatioLog2, na.rm=TRUE)),by=.(Barcode,Well,Spot)][,LineageRatioLog2mel]
+  l3 <- l3[, LineageRatioLog2Rel := calcResidual(LineageRatioLog2mel), by="MEP"]
+  l3 <- l3[, LineageRatioLog2mu := mean(LineageRatioLog2mel, na.rm=TRUE), by="MEP"]
+  
+}
+
+l3 <- l3[, DNA2NRel := calcResidual(DNA2Nmel), by="MEP"]
+l3 <- l3[, SCCRel := calcResidual(SCCmel), by="MEP"]
+l3 <- l3[, EccRel := calcResidual(Eccmel), by="MEP"]
+
+#Add mean of each MEP to spot level data
+l3 <- l3[,DNA2Nmu := mean(DNA2Nmel, na.rm=TRUE), by=MEP]
+l3 <- l3[, SCCmu := mean(SCCmel, na.rm=TRUE), by="MEP"]
+l3 <- l3[, Eccmu := mean(Eccmel, na.rm=TRUE), by="MEP"]
+
+```
+
+```{r createMatrices}
+#For an array  Unit of study there are 64 'samples'of 594 spots with 8 replicates
+#Create a spot assignment that recognizes rotated B row arrays
+l3$RSpot <- l3$Spot
+l3$RSpot[grepl("B",l3$Well)] <- 701-l3$RSpot[grepl("B",l3$Well)]
+#Add in ligand and ECMp names so they will carry through the normalization
+l3$BWL <- paste(l3$Barcode,l3$Well,l3$Ligand,sep="_")
+l3$SE <- paste(l3$RSpot,l3$ECMp,sep="_")
+l3$BW <- paste(l3$Barcode,l3$Well,sep="_")
+l3$WSE <- paste(l3$Well, l3$RSpot,l3$ECMp,sep="_")
+l3$WL <- paste(l3$Well, l3$Ligand ,sep="_")
+
+
+```
+
+```{r fitModel1, eval=TRUE}
+modelList <- lapply(unique(l3$BWL), function(bwl, dt, signal){
+  setkey(dt, BWL)
+  dt <- dt[bwl]
+  form <- formula(paste0(paste0(signal,"mel"),"~ArrayRow+I(ArrayRow^2)+ArrayColumn+I(ArrayColumn^2)+ArrayRow:ArrayColumn+",paste0(signal,"Rel")))
+  m1 <- suppressWarnings(lm(form, data=dt))
+  #spatial effects s_i,j = αi +βi2 +γj +δj2+φij
+  m1DT<- data.table(sij = m1$coefficients[["ArrayRow"]]*m1$model$ArrayRow+
+                      m1$coefficients[["I(ArrayRow^2)"]]*m1$model$ArrayRow^2+
+                      m1$coefficients[["ArrayColumn"]]*m1$model$ArrayColumn+
+                      m1$coefficients[["I(ArrayColumn^2)"]]*m1$model$ArrayColumn^2+
+                      m1$coefficients[["ArrayRow:ArrayColumn"]]*m1$model$ArrayColumn*m1$model$ArrayColumn,
+                    ArrayRow = m1$model$ArrayRow,
+                    ArrayColumn = m1$model$ArrayColumn,
+                    Barcode = dt$Barcode,
+                    Well = dt$Well,
+                    WL = dt$WL,
+                    MEP = dt$MEP)
+}, dt=l3, signal=x[["Signal"]])
+
+
+modelDT <- rbindlist(modelList)
+
+```
+
+
+```{r, child='lm1Text.Rmd'}
+```
+
+
+```{r, fig.width=8, eval=TRUE}
+  limits <- quantile(modelDT$sij, probs=c(.05,.95))
+
+for(barcode in unique(modelDT$Barcode)){
+  setkey(modelDT,Barcode)
+  dt <- modelDT[barcode]
+  p <- ggplot(dt, aes(x=ArrayColumn, y=ArrayRow, fill= sij))+
+    geom_tile()+
+    scale_fill_gradient(low="white",high="red",oob = scales::squish, limits=limits)+
+    ggtitle(bquote(.(x[["Signal"]])~Spatial~Effects~`in`~Plate~.(barcode)))+
+    xlab("")+ylab("")+
+    guides(fill=FALSE)+
+    xlim(.5,20.5)+ylim(35.5,.5)+
+    facet_wrap(~WL, ncol=4)+
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.6)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(.5)), plot.title = element_text(size = rel(.8)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.7)),panel.grid.major = element_line(linetype = 'blank'),panel.background = element_rect(fill = "lightgrey"))
+  suppressWarnings(print(p))
+}
+
+```
+
+
+```{r fitModel2, eval=FALSE}
+modelList <- lapply(unique(l3$BWL), function(bwl, dt, signal){
+  setkey(dt, BWL)
+  dt <- dt[bwl]
+  form <- formula(paste0(paste0(signal,"mel"),"~ArrayRow+I(ArrayRow^2)+ArrayColumn+I(ArrayColumn^2)+ArrayRow:ArrayColumn+",paste0(signal,"Rel")))
+  m1 <- suppressWarnings(lm(form, data=dt))
+  #spatial effects yi,j =μ+p(i,j)+κi+λj+ϕκi*λj+εi,j
+  m1DT<- data.table(sij = m1$coefficients[["ArrayRow"]]*m1$model$ArrayRow+
+                      m1$coefficients[["I(ArrayRow^2)"]]*m1$model$ArrayRow^2+
+                      m1$coefficients[["ArrayColumn"]]*m1$model$ArrayColumn+
+                      m1$coefficients[["I(ArrayColumn^2)"]]*m1$model$ArrayColumn^2+
+                      m1$coefficients[["ArrayRow:ArrayColumn"]]*m1$model$ArrayColumn*m1$model$ArrayColumn,
+                    ArrayRow = m1$model$ArrayRow,
+                    ArrayColumn = m1$model$ArrayColumn,
+                    Barcode = dt$Barcode,
+                    Well = dt$Well,
+                    WL = dt$WL,
+                    MEP = dt$MEP)
+}, dt=l3, signal=x[["Signal"]])
+
+
+modelDT <- rbindlist(modelList)
+
+```
