@@ -1,0 +1,12 @@
+
+###Linear Model 1
+
+Linear Model 1 is applied to the signal values at the array level as follows.  
+* Median summarize the cell level data to the spot level.  
+* Take the logit of EdU$^{+}$, DNA2N, Eccentricity (Ecc) and the log2 of the LineageRatio signals. Do not transform the Spot Cell Count (SCC) signal.  
+* Create residuals $ε_{i, j}$ by subtracting the mean value of the replicates from each replicate value.  
+* Create an M matrix of residuals that is `r nrow(YRelArray)` rows by `r ncol(YRelArray)` columns. Each row holds residuals for each spot in a MEMA.  
+* Fit the linear model: $$y_{i,j}=μ_{p(i, j )} +αi +βi^2 +γj +δ{j^2} +φij + ε_{i, j}$$
+where i and j represent the row and column labels, respectively. i runs from 1 to 35 and j from 1 to 20. $y_{i,j}$ denotes the value of a single measurement, $μ_{p(i, j )}$ denotes the mean value of the replicates of each of the 46 printed proteins and $ε_{i, j}$ represents the residual error from  $μ_{p(i, j )}$ at spot i,j.
+
+This linear model isolates the spatial effects defined as: $$s_{i,j}=αi +βi^2 +γj +δ{j^2} +φij $$ which are plotted for each of the 64 arrays, organized by their 8 well plates.

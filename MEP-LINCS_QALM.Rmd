@@ -105,7 +105,7 @@ l3$WL <- paste(l3$Well, l3$Ligand ,sep="_")
 modelList <- lapply(unique(l3$BWL), function(bwl, dt, signal){
   setkey(dt, BWL)
   dt <- dt[bwl]
-  form <- formula(paste0(paste0(signal,"mel"),"~ArrayRow+I(ArrayRow^2)+ArrayColumn+I(ArrayColumn^2)+ArrayRow:ArrayColumn+",paste0(signal,"Rel")))
+  form <- formula(paste0(paste0(signal,"mel"),paste0("~",signal,"mu"),"+ArrayRow+I(ArrayRow^2)+ArrayColumn+I(ArrayColumn^2)+ArrayRow:ArrayColumn"))
   m1 <- suppressWarnings(lm(form, data=dt))
   #spatial effects s_i,j = αi +βi2 +γj +δj2+φij
   m1DT<- data.table(sij = m1$coefficients[["ArrayRow"]]*m1$model$ArrayRow+
