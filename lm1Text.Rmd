@@ -1,7 +1,9 @@
+---
+output: html_document
+---
 
-###Linear Model 1
 
-Linear Model 1 is applied to the signal values at the array level as follows.  
+**Linear Model 1** is applied to the signal values at the array level as follows.  
 * Median summarize the cell level data to the spot level.  
 * Take the logit of EdU$^{+}$, DNA2N, Eccentricity (Ecc) and the log2 of the LineageRatio signals. Do not transform the Spot Cell Count (SCC) signal.  
 * Fit the linear model: $$y_{i,j}=μ_{p(i, j )} +αi +βi^2 +γj +δ{j^2} +φij + ε_{i, j}$$

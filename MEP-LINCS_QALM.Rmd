@@ -1,12 +1,15 @@
 ---
-output: html_document
+output: 
+  html_document: 
+    theme: cerulean
+    toc: yes
 ---
 ---
 title: "MEP-LINCS `r x[["CellLine"]]` `r x[["StainingSet"]]` `r x[["Signal"]]`  SVD Analysis"
 date: "`r Sys.Date()`"
 ---
 
-```{r global_options_Setup, include=FALSE}
+```{r global_options_Setup, include=FALSE, cache=TRUE}
 #Author: Mark Dane, copyright 2015
 knitr::opts_chunk$set(fig.width=12, fig.height=8,
                       echo=FALSE, warning=FALSE, message=FALSE)
@@ -149,6 +152,12 @@ for(barcode in unique(modelDT$Barcode)){
   suppressWarnings(print(p))
 }
 
+```
+
+```{r datatable, eval=FALSE}
+library(DT)
+
+datatable(l3)
 ```
 
 
