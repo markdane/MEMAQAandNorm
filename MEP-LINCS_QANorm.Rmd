@@ -161,6 +161,29 @@ plotLEHmap(l1MEPs, fill="Mel", titleExpression, limits)
 ```
 
 
+```{r, eval=x[["Method"]]=="RZS"}
+#Todo Start here to implement RZS normalization
+
+nYkList <- lapply(1:7, function(k, Y, cIdx, scIdx, mValue, MValue){
+  #Normalize the spot level data then median summarize
+  nYm <- medianNaiveReplicateRUV2(k, Y, cIdx, scIdx)
+  setnames(nYm, "Value", "mel")
+  #Normalize the spot level data then MAD summarize
+  nYM <- madNaiveReplicateRUV2(k, Y, cIdx, scIdx)
+  setnames(nYM, "Value", "Mel")
+  setkey(nYm,Barcode,MEP,ECMp,Ligand)
+  setkey(nYM, Barcode,MEP,ECMp,Ligand)
+  nY <- merge(nYm, nYM)
+  #Add margin values
+  nY <- addMarginValues(dt=nY, mValue="mel",MValue="Mel")
+  nY$k <- k
+  return(nY)
+}, Y=YArray, cIdx=1:ncol(YArray), scIdx=scIdx, mValue="mel", MValue="Mel")
+
+nY <- rbindlist(nYkList)
+
+```
+
 ```{r, eval=x[["Method"]]=="NaiveReplicateRUV"}
 
 nYkList <- lapply(1:7, function(k, Y, cIdx, scIdx, mValue, MValue){
@@ -218,6 +241,36 @@ nY <- rbindlist(nYknList)
 ```
 
 ```{r, eval=x[["Method"]]=="RUV3"}
+
+nYkList <- lapply(1:5, function(k, Y, M, cIdx, mValue, MValue){
+  #browser()
+  nYm <- medianRUVIIIPlate(k, Y, M, cIdx)
+  setnames(nYm, "Value", "mel")
+  nYM <- madRUVIIIPlate(k, Y, M, cIdx)
+  setnames(nYM, "Value", "Mel")
+  setkey(nYm,Barcode,Well,ECMp)
+  setkey(nYM,Barcode,Well,ECMp)
+  nY <- merge(nYm, nYM)
+  nY$BW <- paste(nY$Barcode,nY$Well, sep="_")
+  setkey(nY,BW)
+  BWL <- unique(l3[,.(BW,Ligand)])
+  setkey(BWL,BW)
+  nY <- merge(nY, BWL)
+  nY$MEP <- paste(nY$ECMp,nY$Ligand, sep="_")
+  nY <- nY[,BW :=NULL]
+  
+  #Add margin values
+  nY <- addMarginValues(dt=nY, mValue="mel",MValue="Mel")
+  nY$k <- k
+  return(nY)
+}, Y=YPlate, M=matrix(1,nrow=nrow(YPlate)), cIdx=which(grepl("A03",colnames(YPlate))), mValue="mel", MValue="Mel")
+
+nY <- rbindlist(nYkList)
+
+```
+
+
+```{r RZS, eval=x[["Method"]]=="RZS"}
 
 nYkList <- lapply(1:5, function(k, Y, M, cIdx, mValue, MValue){
   #browser()
