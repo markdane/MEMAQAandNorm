@@ -118,6 +118,50 @@ madRUVIIIPlate <- function(k, Y, M, cIdx){
   return(nYM)
 }
 
+medianRZS <- function(Y){
+  #RZS Normalize each row of Y
+  nY <- apply(Y,1, function(x){
+    xCtrl <- x[grepl("A03", names(x))]
+    xMedian <- median(xCtrl,na.rm=TRUE)
+    #impute answers if xMAD is 0
+    xMad <- mad(xCtrl,na.rm = TRUE)+.01
+    xRZS <- (x-xMedian)/xMad
+  })
+  #melt matrix to have ECMp and Ligand columns
+  nYm <- melt(nY, varnames=c("WSE","Barcode"))
+  #Extract ECMp and Well values into separate columns
+  nYm$ECMp <- sub("([[:alnum:]]*_){2}","",nYm$WSE)
+  nYm$Well <- strsplit2(nYm$WSE,split="_")[,1]
+  
+  #Median summarize by MEP
+  nYm <- data.table(nYm)
+  nYm <- nYm[, WSE := NULL]
+  nYm <- nYm[,list(Value = median(value, na.rm=TRUE)), by="Barcode,Well,ECMp"]
+  return(nYm)
+}
+
+madRZS <- function(Y){
+  #RZS Normalize each row of Y
+  nY <- apply(Y,1, function(x){
+    xCtrl <- x[grepl("A03", names(x))]
+    xMedian <- median(xCtrl,na.rm=TRUE)
+    #impute answers if xMAD is 0
+    xMad <- mad(xCtrl,na.rm = TRUE)+.01
+    xRZS <- (x-xMedian)/xMad
+  })
+  #melt matrix to have ECMp and Ligand columns
+  nYm <- melt(nY, varnames=c("WSE","Barcode"))
+  #Extract ECMp and Well values into separate columns
+  nYm$ECMp <- sub("([[:alnum:]]*_){2}","",nYm$WSE)
+  nYm$Well <- strsplit2(nYm$WSE,split="_")[,1]
+  
+  #Median summarize by MEP
+  nYm <- data.table(nYm)
+  nYm <- nYm[, WSE := NULL]
+  nYm <- nYm[,list(Value = mad(value)), by="Barcode,Well,ECMp"]
+  return(nYm)
+}
+
 addMarginValues <- function(dt, mValue, MValue){
   #browser()
   dt.l <- dt[,list(m.l = median(get(mValue), na.rm = TRUE),
@@ -220,11 +264,11 @@ calcResidual <- function(x){
 
 ####################################
 
-dataFiles <- data.frame(CellLine=rep(c("PC3", "YAPC","MCF7"),each=3),
-                        StainingSet = rep(c("SS2","SS3","SS3","SS3","SS3"), each=9),
-                        Signal=rep(c("EdU","LineageRatioLog2","DNA2N","SCC","Ecc"), each=9),
-                        Method=c("NaiveRandRUV", "NaiveReplicateRUV","RUV3"),
-                        inputFileName=rep(c("../MEP-LINCS/PC3/SS2/AnnotatedData/PC3_SS2_Level1.txt", "../MEP-LINCS/YAPC/SS2/AnnotatedData/YAPC_SS2_Level1.txt", "../MEP-LINCS/MCF7/SS2/AnnotatedData/MCF7_SS2_Level1.txt","../MEP-LINCS/PC3/SS3/AnnotatedData/PC3_SS3_Level1.txt", "../MEP-LINCS/YAPC/SS3/AnnotatedData/YAPC_SS3_Level1.txt", "../MEP-LINCS/MCF7/SS3/AnnotatedData/MCF7_SS3_Level1.txt","../MEP-LINCS/PC3/SS3/AnnotatedData/PC3_SS3_Level1.txt", "../MEP-LINCS/YAPC/SS3/AnnotatedData/YAPC_SS3_Level1.txt", "../MEP-LINCS/MCF7/SS3/AnnotatedData/MCF7_SS3_Level1.txt","../MEP-LINCS/PC3/SS3/AnnotatedData/PC3_SS3_Level1.txt", "../MEP-LINCS/YAPC/SS3/AnnotatedData/YAPC_SS3_Level1.txt", "../MEP-LINCS/MCF7/SS3/AnnotatedData/MCF7_SS3_Level1.txt","../MEP-LINCS/PC3/SS3/AnnotatedData/PC3_SS3_Level1.txt", "../MEP-LINCS/YAPC/SS3/AnnotatedData/YAPC_SS3_Level1.txt", "../MEP-LINCS/MCF7/SS3/AnnotatedData/MCF7_SS3_Level1.txt"), each=3),stringsAsFactors = FALSE)[16:18,]
+dataFiles <- data.frame(CellLine=rep(c("PC3", "YAPC","MCF7"),each=4),
+                        StainingSet = rep(c("SS2","SS3","SS3","SS3","SS3"), each=12),
+                        Signal=rep(c("EdU","LineageRatioLog2","DNA2N","SCC","Ecc"), each=12),
+                        Method=c("RZS","NaiveRandRUV", "NaiveReplicateRUV","RUV3"),
+                        inputFileName=rep(c("../MEP-LINCS/PC3/SS2/AnnotatedData/PC3_SS2_Level1.txt", "../MEP-LINCS/YAPC/SS2/AnnotatedData/YAPC_SS2_Level1.txt", "../MEP-LINCS/MCF7/SS2/AnnotatedData/MCF7_SS2_Level1.txt","../MEP-LINCS/PC3/SS3/AnnotatedData/PC3_SS3_Level1.txt", "../MEP-LINCS/YAPC/SS3/AnnotatedData/YAPC_SS3_Level1.txt", "../MEP-LINCS/MCF7/SS3/AnnotatedData/MCF7_SS3_Level1.txt","../MEP-LINCS/PC3/SS3/AnnotatedData/PC3_SS3_Level1.txt", "../MEP-LINCS/YAPC/SS3/AnnotatedData/YAPC_SS3_Level1.txt", "../MEP-LINCS/MCF7/SS3/AnnotatedData/MCF7_SS3_Level1.txt","../MEP-LINCS/PC3/SS3/AnnotatedData/PC3_SS3_Level1.txt", "../MEP-LINCS/YAPC/SS3/AnnotatedData/YAPC_SS3_Level1.txt", "../MEP-LINCS/MCF7/SS3/AnnotatedData/MCF7_SS3_Level1.txt","../MEP-LINCS/PC3/SS3/AnnotatedData/PC3_SS3_Level1.txt", "../MEP-LINCS/YAPC/SS3/AnnotatedData/YAPC_SS3_Level1.txt", "../MEP-LINCS/MCF7/SS3/AnnotatedData/MCF7_SS3_Level1.txt"), each=4),stringsAsFactors = FALSE)
 
 x <- dataFiles
 

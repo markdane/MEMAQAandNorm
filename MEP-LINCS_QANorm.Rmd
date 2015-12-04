@@ -91,11 +91,14 @@ l3$BW <- paste(l3$Barcode,l3$Well,sep="_")
 l3$WSE <- paste(l3$Well, l3$RSpot,l3$ECMp,sep="_")
 
 #Cast to get mel values by barcode_well_ligand rows and spot columns
-#Coerce missing values to have near 0 values
+#logit transform the values that are porportions in the [0,1] range
+#Coerce missing values to have near 0 values before transformation
 if(x[["Signal"]] %in% c("EdU", "DNA2N", "Ecc")){
   fill <- log2(.01/(1-.01))
-} else if(x[["Signal"]] %in% c("LineageRatioLog2", "SCC")){
+} else if(x[["Signal"]] %in% c("SCC")){
   fill <- 0
+} else if(x[["Signal"]] %in% c("LineageRatioLog2")){
+  fill <- log2(.001)
 } else(stop(paste("Need fill value for",x[["Signal"]]," signal"))) 
 
 l3c <- dcast(l3, BWL~SE, value.var=paste0(x[["Signal"]],"mel"), fill = fill)
@@ -162,25 +165,24 @@ plotLEHmap(l1MEPs, fill="Mel", titleExpression, limits)
 
 
 ```{r, eval=x[["Method"]]=="RZS"}
-#Todo Start here to implement RZS normalization
 
-nYkList <- lapply(1:7, function(k, Y, cIdx, scIdx, mValue, MValue){
-  #Normalize the spot level data then median summarize
-  nYm <- medianNaiveReplicateRUV2(k, Y, cIdx, scIdx)
-  setnames(nYm, "Value", "mel")
-  #Normalize the spot level data then MAD summarize
-  nYM <- madNaiveReplicateRUV2(k, Y, cIdx, scIdx)
-  setnames(nYM, "Value", "Mel")
-  setkey(nYm,Barcode,MEP,ECMp,Ligand)
-  setkey(nYM, Barcode,MEP,ECMp,Ligand)
-  nY <- merge(nYm, nYM)
-  #Add margin values
-  nY <- addMarginValues(dt=nY, mValue="mel",MValue="Mel")
-  nY$k <- k
-  return(nY)
-}, Y=YArray, cIdx=1:ncol(YArray), scIdx=scIdx, mValue="mel", MValue="Mel")
+nYm <- medianRZS(YPlate)
+setnames(nYm, "Value", "mel")
+nYM <- madRZS(YPlate)
+setnames(nYM, "Value", "Mel")
+setkey(nYm,Barcode,Well,ECMp)
+setkey(nYM,Barcode,Well,ECMp)
+nY <- merge(nYm, nYM)
+nY$BW <- paste(nY$Barcode,nY$Well, sep="_")
+setkey(nY,BW)
+BWL <- unique(l3[,.(BW,Ligand)])
+setkey(BWL,BW)
+nY <- merge(nY, BWL)
+nY$MEP <- paste(nY$ECMp,nY$Ligand, sep="_")
+nY <- nY[,BW :=NULL]
+#Add margin values
+nY <- addMarginValues(dt=nY, mValue="mel",MValue="Mel")
 
-nY <- rbindlist(nYkList)
 
 ```
 
@@ -269,36 +271,6 @@ nY <- rbindlist(nYkList)
 
 ```
 
-
-```{r RZS, eval=x[["Method"]]=="RZS"}
-
-nYkList <- lapply(1:5, function(k, Y, M, cIdx, mValue, MValue){
-  #browser()
-  nYm <- medianRUVIIIPlate(k, Y, M, cIdx)
-  setnames(nYm, "Value", "mel")
-  nYM <- madRUVIIIPlate(k, Y, M, cIdx)
-  setnames(nYM, "Value", "Mel")
-  setkey(nYm,Barcode,Well,ECMp)
-  setkey(nYM,Barcode,Well,ECMp)
-  nY <- merge(nYm, nYM)
-  nY$BW <- paste(nY$Barcode,nY$Well, sep="_")
-  setkey(nY,BW)
-  BWL <- unique(l3[,.(BW,Ligand)])
-  setkey(BWL,BW)
-  nY <- merge(nY, BWL)
-  nY$MEP <- paste(nY$ECMp,nY$Ligand, sep="_")
-  nY <- nY[,BW :=NULL]
-  
-  #Add margin values
-  nY <- addMarginValues(dt=nY, mValue="mel",MValue="Mel")
-  nY$k <- k
-  return(nY)
-}, Y=YPlate, M=matrix(1,nrow=nrow(YPlate)), cIdx=which(grepl("A03",colnames(YPlate))), mValue="mel", MValue="Mel")
-
-nY <- rbindlist(nYkList)
-
-```
-
 ```{r, fig.height=3}
 groupBy <- "ECMp"
 value <- "mel-m.l"
@@ -326,6 +298,8 @@ if(x[["Method"]] %in% c("NaiveRandRUV")){
   p <- p +  facet_grid(k~nu, labeller = labeller(nu = label_both, k = label_both))
 } else if (x[["Method"]] %in% c("NaiveReplicateRUV","RUV3")) {
   p <- p + facet_grid(k~., labeller = labeller(k = label_both))
+} else if (x[["Method"]] %in% c("RZS")) {
+  p <- p
 }  else(stop(paste("Do not have a plot method for",x[["Method"]],"normalization")))
 
 suppressWarnings(print(p))
@@ -360,9 +334,63 @@ if(x[["Method"]] %in% c("NaiveRandRUV")){
   p <- p +  facet_grid(k~nu, labeller = labeller(nu = label_both, k = label_both))
 } else if (x[["Method"]] %in% c("NaiveReplicateRUV","RUV3")) {
   p <- p + facet_grid(k~., labeller = labeller(k = label_both))
+} else if (x[["Method"]] %in% c("RZS")) {
+  p <- p
 }  else(stop(paste("Do not have a plot method for",x[["Method"]],"normalization")))
-
 suppressWarnings(print(p))
+
+
+```
+
+```{r, eval=(x[["CellLine"]]=="PC3" & x[["StainingSet"]]=="SS2")}
+cat("Removing plates LI8X00426 and LI8X00427")
+
+#remove the 426 and and 427 plates as they are poor quality and cannot
+#be normalized by RZS
+
+setkey(nY,Barcode)
+nYF <- nY[!"LI8X00426"]
+nYF <- nYF[!"LI8X00427"]
+
+groupBy <- "ECMp"
+value <- "mel-m.l"
+titleExpression= bquote(.(x[["Signal"]])~Medians~(m["e,l"]*"-"*m[".,l"])~After~.(x[["Method"]])~Normalization)
+yLimits=quantile(nYF[["mel"]]-nYF[["m.l"]], probs=c(.005, .995), na.rm=TRUE)
+plotCenteredBoxes(dt = nYF, value = value, groupBy = groupBy, titleExpression = titleExpression, yLimits = yLimits)
+
+groupBy <- "Ligand"
+value <- "mel-me."
+colourBy <- "Barcode"
+titleExpression= bquote(.(x[["Signal"]])~Medians~(m["e,l"]*"-"*m["e,."])~After~.(x[["Method"]])~Normalization)
+yLimits=quantile(nYF[["mel"]]-nYF[["me."]], probs=c(.005, .995), na.rm=TRUE)
+plotCenteredBoxes(dt = nYF, value = value, groupBy = groupBy, colourBy = "Barcode", titleExpression = titleExpression, yLimits = yLimits)
+
+
+```
+
+
+```{r, eval=(x[["CellLine"]]=="MCF7" & x[["StainingSet"]]=="SS2")}
+#remove the 145 plate as they are poor quality and cannot
+#be normalized by RZS
+
+cat("Removing plate LI8X00145")
+setkey(nY,Barcode)
+nYF <- nY[!"LI8X00145"]
+
+groupBy <- "ECMp"
+value <- "mel-m.l"
+titleExpression= bquote(.(x[["Signal"]])~Medians~(m["e,l"]*"-"*m[".,l"])~After~.(x[["Method"]])~Normalization)
+yLimits=quantile(nYF[["mel"]]-nYF[["m.l"]], probs=c(.005, .995), na.rm=TRUE)
+plotCenteredBoxes(dt = nYF, value = value, groupBy = groupBy, titleExpression = titleExpression, yLimits = yLimits)
+
+groupBy <- "Ligand"
+value <- "mel-me."
+colourBy <- "Barcode"
+titleExpression= bquote(.(x[["Signal"]])~Medians~(m["e,l"]*"-"*m["e,."])~After~.(x[["Method"]])~Normalization)
+yLimits=quantile(nYF[["mel"]]-nYF[["me."]], probs=c(.005, .995), na.rm=TRUE)
+plotCenteredBoxes(dt = nYF, value = value, groupBy = groupBy, colourBy = "Barcode", titleExpression = titleExpression, yLimits = yLimits)
+
+
 ```
 
 
