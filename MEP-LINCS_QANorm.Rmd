@@ -476,3 +476,73 @@ p <- ggplot(dt, aes_string(x="Ligand", y="ECMp", fill = fill))+
 suppressWarnings(print(p))
 
 ```
+
+```{r col1_FBSNormed}
+#Merge raw l3 and normalized nY datasets
+
+# 
+if(x[["Method"]]=="RUV3")
+{
+  nYkList <- lapply(c(0,2,4,6), function(k, Y, M, cIdx){
+    ruv3dt <- RUVIIIPlate(k=k, Y=Y, M=M, cIdx=cIdx)
+    ruv3dt <- ruv3dt[,L1 := NULL]
+    return(ruv3dt)
+  }, Y=YPlate, M=matrix(1,nrow=nrow(YPlate)), cIdx=which(grepl("A03",colnames(YPlate))))
+  nY <- rbindlist(nYkList)
+  
+}else if (x[["Method"]]=="RZS"){
+  nY <- RZSPlate(YPlate)
+  
+} else if (x[["Method"]]=="NaiveRandRUV"){
+  nYkList <- lapply(c(0,1,2,3), function(k, Y, cIdx){
+    nY <- naiveRUV2Plate(k=k, nu=.1, Y=Y, cIdx=cIdx)
+    return(nY)
+  }, Y=YArray, cIdx=1:ncol(YArray))
+  nY <- rbindlist(nYkList)
+  
+} else if (x[["Method"]]=="NaiveReplicateRUV"){
+  nYkList <- lapply(c(1, 2,4,6), function(k, Y, cIdx, scIdx){
+    nY <- naiveReplicateRUV2Plate(k=k, Y=Y, cIdx=cIdx, scIdx=scIdx)
+    return(nY)
+  }, Y=YArray, cIdx=1:ncol(YArray), scIdx=scIdx)
+  nY <- rbindlist(nYkList)
+  
+} else stop(paste(x[["Method"]]," is an unsupported normailization method"))
+
+chosenECMp <- "COL1"
+#Add a raw value for each k value
+ks <- unique(nY$k)
+dt <- melt(YPlate, varnames=c("Barcode","WSE"))
+#Extract ECMp and Well values into separate columns
+dt$ECMp <- sub("([[:alnum:]]*_){2}","",dt$WSE)
+dt$Well <- strsplit2(dt$WSE,split="_")[,1]
+
+dt <- data.table(dt)
+dt <- dt[, WSE := NULL]
+dt <- dt[dt$ECMp==chosenECMp]
+dt <- data.table(dt, k=rep(ks, each=nrow(dt)))
+setkey(dt, Barcode,Well,ECMp,k)
+nY <- nY[nY$ECMp==chosenECMp]
+setkey(nY,Barcode,Well,ECMp,k)
+dt$valueNormed <- nY$value
+
+p <- ggplot(dt, aes(x=value, y=valueNormed, colour=k))+
+  geom_point(alpha=.5)+
+  facet_grid(Well~Barcode)+
+  ggtitle(paste(x[["Method"]],"Normalized vs Raw",x[["Signal"]],chosenECMp,"replicate responses in",x[["CellLine"]]))
+print(p)
+
+p <- ggplot(dt, aes(x=factor(k), y=valueNormed, colour=Well))+
+  geom_boxplot()+
+  facet_wrap(~Barcode)+
+  ggtitle(paste(x[["Method"]],"Normalized vs Raw",x[["Signal"]],chosenECMp,"replicate responses in",x[["CellLine"]]))
+print(p)
+
+
+p <- ggplot(dt, aes(x=factor(k), y=valueNormed, colour=Barcode))+
+  geom_boxplot()+
+  facet_wrap(~Well)+
+  ggtitle(paste(x[["Method"]],"Normalized vs Raw",x[["Signal"]],chosenECMp,"replicate responses in",x[["CellLine"]]))
+print(p)
+
+```

@@ -1,6 +1,24 @@
 library("rmarkdown")
 library("ruv")
 
+naiveRandRUV_MD <- function (Y, cIdx, nuCoeff = 0.001, k = nrow(Y)) 
+{
+  if (k == 0) {
+    nY <- Y
+  } else if (k==1){
+  svdYc <- svd(Y[, cIdx])
+  W <- svdYc$u[, 1:k] * svdYc$d[1]
+  nu <- nuCoeff * svdYc$d[1]^2
+  nY <- Y - W %*% solve(t(W) %*% W + nu * diag(k), t(W) %*% Y)
+  } else {
+    svdYc <- svd(Y[, cIdx])
+    W <- svdYc$u[, 1:k] %*% diag(svdYc$d[1:k])
+    nu <- nuCoeff * svdYc$d[1]^2
+    nY <- Y - W %*% solve(t(W) %*% W + nu * diag(k), t(W) %*% Y)
+  }
+  return(nY)
+}
+
 plotLEHmap <- function(dt, fill, titleExpression, limits){
   p <- ggplot(dt, aes_string(x="Ligand", y="ECMp", fill = fill))+
     geom_tile()+
@@ -88,7 +106,7 @@ madNaiveReplicateRUV2 <- function(k, Y, cIdx, scIdx){
 
 medianRUVIIIPlate <- function(k, Y, M, cIdx){
   #browser()
-  nY <- RUVIII(Y, M, cIdx, k)
+  nY <- RUVIII(Y, M, cIdx, k)["newY"]
   #melt matrix to have ECMp and Ligand columns
   nYm <- melt(nY, varnames=c("Barcode","WSE"))
   #Extract ECMp and Well values into separate columns
@@ -104,7 +122,7 @@ medianRUVIIIPlate <- function(k, Y, M, cIdx){
 
 madRUVIIIPlate <- function(k, Y, M, cIdx){
   #browser()
-  nY <- RUVIII(Y, M, cIdx, k)
+  nY <- RUVIII(Y, M, cIdx, k)["newY"]
   #melt matrix to have ECMp and Ligand columns
   nYm <- melt(nY, varnames=c("Barcode","WSE"))
   #Extract ECMp and Well values into separate columns
@@ -252,16 +270,86 @@ madNaiveRUV2Plate <- function(nu, Y, cIdx, k){
   nYM <- nYm[,list(Value = mad(value)), by="Barcode,Well,ECMp"]
   return(nYM)
 }
-#cellLine
-#ss is staining set
-#s is signal
-#m is method
+
 
 calcResidual <- function(x){
   mel <- median(x, na.rm=TRUE)
   return(x-mel)
 }
 
+naiveRUV2Plate <- function(k, nu, Y, cIdx){
+  #browser()
+  nY <- naiveRandRUV_MD(Y, cIdx, nu, k)
+  #melt matrix to have ECMp and Ligand columns
+  nYm <- melt(nY, varnames=c("BWL","SE"))
+  #Extract ECMp and Well values into separate columns
+  nYm$ECMp <- sub("([[:alnum:]]*_){1}","",nYm$SE)
+  nYm$Spot <- as.numeric(sub("(_[[:alnum:]]*){1}","",nYm$SE))
+  nYm$Well <- strsplit2(nYm$BWL,split="_")[,2]
+  nYm$Barcode <- strsplit2(nYm$BWL,split="_")[,1]
+  nYm$k <- k
+  
+  #Median summarize by MEP
+  nYm <- data.table(nYm)
+  nYm <- nYm[, SE := NULL]
+  nYm <- nYm[, BWL := NULL]
+  return(nYm)
+}
+
+naiveReplicateRUV2Plate <- function(k, Y, cIdx, scIdx){
+  nY <- naiveReplicateRUV(Y, cIdx, scIdx, k)$cY
+  #Median summarize the normalized values
+  #melt matrix to have ECMp and Ligand columns
+  nYm <- melt(nY, varnames=c("BWL","SE"))
+  #Recreate a MEP column
+  nYm$ECMp <- sub("([[:alnum:]]*_){1}","",nYm$SE)
+  nYm$Ligand <- sub("([[:alnum:]]*_){2}","",nYm$BWL)
+  nYm$MEP <- paste(nYm$ECMp,nYm$Ligand, sep="_")
+  nYm$Barcode <- strsplit2(nYm$BWL,split="_")[,1]
+  nYm$k <- k
+  #Median summarize by MEP
+  nYm <- data.table(nYm)
+  nYm <- nYm[, BWL := NULL]
+  nYm <- nYm[, SE := NULL]
+  nYm$k <- k
+  return(nYm)
+}
+
+RUVIIIPlate <- function(k, Y, M, cIdx){
+  #browser()
+  nY <- RUVIII(Y, M, cIdx, k)["newY"]
+  #melt matrix to have ECMp and Ligand columns
+  nYm <- melt(nY, varnames=c("Barcode","WSE"))
+  #Extract ECMp and Well values into separate columns
+  nYm$ECMp <- sub("([[:alnum:]]*_){2}","",nYm$WSE)
+  nYm$Well <- strsplit2(nYm$WSE,split="_")[,1]
+  
+  nYm <- data.table(nYm)
+  nYm <- nYm[, WSE := NULL]
+  nYm$k <- k
+  return(nYm)
+}
+
+RZSPlate <- function(Y){
+  #RZS Normalize each row of Y
+  nY <- apply(Y,1, function(x){
+    xCtrl <- x[grepl("A03", names(x))]
+    xMedian <- median(xCtrl,na.rm=TRUE)
+    #impute answers if xMAD is 0
+    xMad <- mad(xCtrl,na.rm = TRUE)+.01
+    xRZS <- (x-xMedian)/xMad
+  })
+  #melt matrix to have ECMp and Ligand columns
+  nYm <- melt(nY, varnames=c("WSE","Barcode"))
+  #Extract ECMp and Well values into separate columns
+  nYm$ECMp <- sub("([[:alnum:]]*_){2}","",nYm$WSE)
+  nYm$Well <- strsplit2(nYm$WSE,split="_")[,1]
+  
+  #Median summarize by MEP
+  nYm <- data.table(nYm)
+  nYm <- nYm[, WSE := NULL]
+  return(nYm)
+}
 ####################################
 
 dataFiles <- data.frame(CellLine=rep(c("PC3", "YAPC","MCF7"),each=4),
