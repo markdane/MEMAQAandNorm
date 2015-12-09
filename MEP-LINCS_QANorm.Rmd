@@ -489,7 +489,7 @@ print(p)
 p <- ggplot(dt, aes(x=valueNormed, fill=factor(k)))+
   geom_density(alpha=.3)+
   facet_grid(Well~Barcode)+
-  ylim(0,.6)+
+  coord_cartesian(ylim=c(0,.8))+
   ggtitle(paste(x[["Method"]],"Normalized",x[["Signal"]],chosenECMp,"replicate responses in",x[["CellLine"]]))
 print(p)
 
