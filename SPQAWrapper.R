@@ -235,6 +235,7 @@ callQASP <- function(x){
 
 #apply(x, 1, callQASP)
 
+includePlotly <- TRUE
 #Create the consolidated report
 render(paste0("Mep-LINCS_SPQA_All.Rmd"),
        output_file = paste0("Mep-LINCS_QA_SP_All.html"),

@@ -1,15 +1,13 @@
 ---
-output: 
-  html_document: 
-    theme: cerulean
-    toc: yes
+output: html_document
 ---
+
 ---
-title: "MEP-LINCS `r x[["CellLine"]]` `r x[["StainingSet"]]` `r x[["Signal"]]`  SVD Analysis"
+title: "MEP-LINCS `r x[["CellLine"]]` `r x[["StainingSet"]]` `r x[["Signal"]]` Linear Model Analysis"
 date: "`r Sys.Date()`"
 ---
 
-```{r global_options_Setup, include=FALSE, cache=TRUE}
+```{r global_options_Setup, include=FALSE}
 #Author: Mark Dane, copyright 2015
 knitr::opts_chunk$set(fig.width=12, fig.height=8,
                       echo=FALSE, warning=FALSE, message=FALSE)
@@ -66,7 +64,7 @@ l3 <- l1[,list(Ligand=unique(Ligand), LigandAnnotID=unique(LigandAnnotID),
 ),
 by="Barcode,Well,Spot"]
 
-if(x[["StainingSet"]] == "SS2"){
+if(unique(x[["StainingSet"]]) == "SS2"){
   l3$EdUmel <- l1[,list(EdUmel = median(Nuclei_PA_Gated_EduPositiveLogit, na.rm=TRUE)),by=.(Barcode,Well,Spot)][,EdUmel]
   l3 <- l3[, EdURel := calcResidual(EdUmel), by="MEP"]
   l3 <- l3[, EdUmu := mean(EdUmel,na.rm=TRUE), by="MEP"]
@@ -83,7 +81,7 @@ l3 <- l3[, SCCRel := calcResidual(SCCmel), by="MEP"]
 l3 <- l3[, EccRel := calcResidual(Eccmel), by="MEP"]
 
 #Add mean of each MEP to spot level data
-l3 <- l3[,DNA2Nmu := mean(DNA2Nmel, na.rm=TRUE), by=MEP]
+l3 <- l3[,DNA2Nmu := mean(DNA2Nmel, na.rm=TRUE), by="MEP"]
 l3 <- l3[, SCCmu := mean(SCCmel, na.rm=TRUE), by="MEP"]
 l3 <- l3[, Eccmu := mean(Eccmel, na.rm=TRUE), by="MEP"]
 
@@ -104,18 +102,20 @@ l3$WL <- paste(l3$Well, l3$Ligand ,sep="_")
 
 ```
 
-```{r fitModel1, eval=TRUE}
+```{r fitModel1}
+
 modelList <- lapply(unique(l3$BWL), function(bwl, dt, signal){
   setkey(dt, BWL)
   dt <- dt[bwl]
-  form <- formula(paste0(paste0(signal,"mel"),paste0("~",signal,"mu"),"+ArrayRow+I(ArrayRow^2)+ArrayColumn+I(ArrayColumn^2)+ArrayRow:ArrayColumn"))
-  m1 <- suppressWarnings(lm(form, data=dt))
+  dt$ECMp <- as.factor(dt$ECMp)
+   form <- formula(paste0(paste0(signal,"mel"),paste0("~-1+ECMp+"),"+ArrayRow+I(ArrayRow^2)+ArrayColumn+I(ArrayColumn^2)+ArrayRow:ArrayColumn"))
+   m1 <- suppressWarnings(lm(form, data=dt))
   #spatial effects s_i,j = αi +βi2 +γj +δj2+φij
   m1DT<- data.table(sij = m1$coefficients[["ArrayRow"]]*m1$model$ArrayRow+
                       m1$coefficients[["I(ArrayRow^2)"]]*m1$model$ArrayRow^2+
                       m1$coefficients[["ArrayColumn"]]*m1$model$ArrayColumn+
-                      m1$coefficients[["I(ArrayColumn^2)"]]*m1$model$ArrayColumn^2+
-                      m1$coefficients[["ArrayRow:ArrayColumn"]]*m1$model$ArrayColumn*m1$model$ArrayColumn,
+                     m1$coefficients[["I(ArrayColumn^2)"]]*m1$model$ArrayColumn^2+
+                     m1$coefficients[["ArrayRow:ArrayColumn"]]*m1$model$ArrayRow*m1$model$ArrayColumn,
                     ArrayRow = m1$model$ArrayRow,
                     ArrayColumn = m1$model$ArrayColumn,
                     Barcode = dt$Barcode,
@@ -135,7 +135,7 @@ modelDT <- rbindlist(modelList)
 
 
 ```{r, fig.width=8, eval=TRUE}
-  limits <- quantile(modelDT$sij, probs=c(.05,.95))
+limits <- quantile(modelDT$sij, probs=c(.05,.95))
 
 for(barcode in unique(modelDT$Barcode)){
   setkey(modelDT,Barcode)

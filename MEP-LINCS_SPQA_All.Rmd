@@ -23,6 +23,8 @@ library("knitr")
 library("gplots")
 library("RColorBrewer")
 library("RUVnormalize")
+library(htmlwidgets)
+library(DT)
 library(plotly)
 
 #Read in file based on name in dataframe
@@ -42,6 +44,7 @@ l1 <- l1[, ArrayPrintOrder := (PlatePrintOrder-1)*8+WellIndex]
 #Delete the fiducial and blank spots
 setkey(l1, "ECMp")
 l1 <- l1[!"fiducial"]
+l1 <- l1[!"blank"]
 
 #Create spot level dataset and 
 #add Rel, the residual from subtracting the mel from each value
@@ -56,7 +59,12 @@ l3 <- l1[,list(Ligand=unique(Ligand), LigandAnnotID=unique(LigandAnnotID),
          by="Barcode,Well,Spot"]
 
 l3 <- l3[, SCCRel := calcResidual(SCCmel), by="Barcode,Well,MEP"]
-
+l3 <- l3[,SCCnRel := normResidual(SCCmel), by="Barcode,Well,MEP"]
+normResidual <- function(x){
+  mel <- median(x, na.rm=TRUE)
+  nres <- log2((x+.01)/(mel+.01))
+  return(nres)
+}
 ```
 
 ```{r createMatrices}
@@ -80,31 +88,26 @@ l3$WSE <- paste(l3$Well, l3$RSpot,l3$ECMp,sep="_")
 fill <- 0
 l3Relc <- data.table(dcast(l3, BWL+ArrayPrintOrder+ECMSourcePlateSeries~ES, value.var=c("SCCRel"), fill = fill))
 
+l3nRelc <- data.table(dcast(l3, BWL+ArrayPrintOrder+ECMSourcePlateSeries~ES, value.var=c("SCCnRel"), fill = fill))
+
 l3melc <- data.table(dcast(l3, BWL+ArrayPrintOrder+ECMSourcePlateSeries~ES, value.var=c("SCCmel"), fill = fill))
 
 ```
 
 
-###Analysis of Spot Cell Count over Time
-
-Analysis of Spot Cell Count over Time uses the raw spot cell counts and  residuals to assess the contents of the wells in the ECM source plates. Each set of ECM source plates is used to print a series of 8 well plates. The version 1 dataset in this analysis comes from three ECM source plate series 1, 3 and 4. 
+This analysis attempts to show if there are wells with little or no reagent in the MEMA ECM source plates. The assumption is that after controlling for the ECM protein contents of the spot and the number of cells seeded in each well, spots with fewer cells came from source plate wells with less reagent. The following plots order the normalized and raw loess-smoothed spot cell counts by print order. Plates printed from the same series of ECM source plates are grouped. The version 1 dataset in this analysis comes from three ECM source plate series: 1, 3 and 4. Trend lines from spots that start high and become lower over time may show the effect of low reagent volume in the associated well.  
 
 The analysis method is:   
 * Median summarize the cell level data to the spot level.  
 * Create residuals by subtracting the median value of the replicates within each array from each spot value.  
-* Create a matrix of residuals that is `r nrow(l3Relc)` rows (the number of arrays) by `r ncol(l3Relc)` columns (the number of spots in each array). Each column holds residuals for one spot in all MEMAs.  
-* Create another matrix of the raw spot cell count values that is `r nrow(l3Relc)` rows by `r ncol(l3Relc)` columns, orgainzed similar to the residual matrix.  
-* Plot a time course for each spot
+* Create a matrix of residuals that is `r nrow(l3Relc)` rows (the number of arrays) by `r ncol(l3Relc)-3` columns (the number of non-fiducial spots in each array). Each column holds values for one spot in all MEMAs.  
+* Create a matrix of normalized residuals that are the log2 of the spot value divided by the median of the replicates of the spot.  
+* Create another matrix of the raw spot cell count values.  
+* Plot loess smoothed time courses for the residuals, normalized residuals and raw spot cell counts for each spot 
 
 ```{r SpotTimeCourse}
 setkey(l3Relc, BWL)
 l3Relmelt <- melt(l3Relc, id.vars=c("BWL","ArrayPrintOrder","ECMSourcePlateSeries"), measure=patterns("_"),variable.name = "ES", value.name = paste0(unique(x[["Signal"]]),"Rel"))
-# p <- ggplot(l3Relmelt, aes(x=PrintOrder, y=SCCRel1, colour=ES))+
-#   geom_smooth(size=.1, se = FALSE)+
-#   ggtitle("Time Course of Spot Cell Count Residuals\nColored by Spot")+
-#   geom_vline(xintercept = c(seq(64,64*8,by=64)), color="blue",linetype = "dotdash", size=.1)+
-#   guides(colour=FALSE)
-# print(p)
 
 p <- ggplot(l3Relmelt, aes(x=ArrayPrintOrder, y=SCCRel1, colour=ES))+
   geom_smooth(size=.1, se = FALSE)+
@@ -115,11 +118,34 @@ p <- ggplot(l3Relmelt, aes(x=ArrayPrintOrder, y=SCCRel1, colour=ES))+
 print(p)
 ```
 
-The plot below is interactive and cen be used to zoom in and identify indivdual spot data. The number after the underscore is the spot index in the array.  
+The plot below is interactive and can be used to zoom in and identify indivdual spot data. In the tool tip, the number after the underscore is the spot index in the array.  
 
 <br>  
 
-```{r RelPlotly}
+```{r RelPlotly, eval=includePlotly}
+
+ggplotly(p)
+
+```
+
+```{r NormedResidualSpotTimeCourse}
+setkey(l3nRelc, BWL)
+l3nRelmelt <- melt(l3nRelc, id.vars=c("BWL","ArrayPrintOrder","ECMSourcePlateSeries"), measure=patterns("_"),variable.name = "ES", value.name = paste0(unique(x[["Signal"]]),"nRel"))
+
+p <- ggplot(l3nRelmelt, aes(x=ArrayPrintOrder, y=SCCnRel1, colour=ES))+
+  geom_smooth(size=.1, se = FALSE)+
+  ggtitle("Time Course of Normalized Spot Cell Count Residuals\nColored by Spot")+
+  #geom_vline(xintercept = c(seq(64,64*6,by=64)), color="blue",linetype = "dotdash", size=.1)+
+  facet_wrap(~ECMSourcePlateSeries,ncol=1, labeller = label_both)+
+  guides(colour=FALSE)
+print(p)
+```
+
+The plot below is interactive and can be used to zoom in and identify indivdual spot data. In the tool tip, the number after the underscore is the spot index in the array. 
+
+<br>  
+
+```{r nRelPlotly, eval=includePlotly}
 
 ggplotly(p)
 
@@ -138,11 +164,11 @@ p <- ggplot(l3melmelt, aes(x=ArrayPrintOrder, y=SCCmel1, colour=ES))+
 print(p)
 ```
 
-The plot below is interactive and cen be used to zoom in and identify indivdual spot data. The number after the underscore is the spot index in the array.  
+The plot below is interactive and can be used to zoom in and identify indivdual spot data. In the tool tip, the number after the underscore is the spot index in the array. 
 
 <br>  
 
-```{r melPlotly}
+```{r melPlotly, eval=includePlotly}
 
 ggplotly(p)
 

@@ -319,7 +319,7 @@ RUVIIIPlate <- function(k, Y, M, cIdx){
   #browser()
   nY <- RUVIII(Y, M, cIdx, k)["newY"]
   #melt matrix to have ECMp and Ligand columns
-  nYm <- melt(nY, varnames=c("Barcode","WSE"))
+  nYm <- melt(nY, varnames=c("Barcode","WSE"), as.is=TRUE)
   #Extract ECMp and Well values into separate columns
   nYm$ECMp <- sub("([[:alnum:]]*_){2}","",nYm$WSE)
   nYm$Well <- strsplit2(nYm$WSE,split="_")[,1]
@@ -356,7 +356,7 @@ dataFiles <- data.frame(CellLine=rep(c("PC3", "YAPC","MCF7"),each=4),
                         StainingSet = rep(c("SS2","SS3","SS3","SS3","SS3"), each=12),
                         Signal=rep(c("EdU","LineageRatioLog2","DNA2N","SCC","Ecc"), each=12),
                         Method=c("RZS","NaiveRandRUV", "NaiveReplicateRUV","RUV3"),
-                        inputFileName=rep(c("../MEP-LINCS/PC3/SS2/AnnotatedData/PC3_SS2_Level1.txt", "../MEP-LINCS/YAPC/SS2/AnnotatedData/YAPC_SS2_Level1.txt", "../MEP-LINCS/MCF7/SS2/AnnotatedData/MCF7_SS2_Level1.txt","../MEP-LINCS/PC3/SS3/AnnotatedData/PC3_SS3_v1.1_Level1.txt", "../MEP-LINCS/YAPC/SS3/AnnotatedData/YAPC_SS3_Level1.txt", "../MEP-LINCS/MCF7/SS3/AnnotatedData/MCF7_SS3_Level1.txt","../MEP-LINCS/PC3/SS3/AnnotatedData/PC3_SS3_v1.1_Level1.txt", "../MEP-LINCS/YAPC/SS3/AnnotatedData/YAPC_SS3_Level1.txt", "../MEP-LINCS/MCF7/SS3/AnnotatedData/MCF7_SS3_Level1.txt","../MEP-LINCS/PC3/SS3/AnnotatedData/PC3_SS3_v1.1_Level1.txt", "../MEP-LINCS/YAPC/SS3/AnnotatedData/YAPC_SS3_Level1.txt", "../MEP-LINCS/MCF7/SS3/AnnotatedData/MCF7_SS3_Level1.txt","../MEP-LINCS/PC3/SS3/AnnotatedData/PC3_SS3_v1.1_Level1.txt", "../MEP-LINCS/YAPC/SS3/AnnotatedData/YAPC_SS3_Level1.txt", "../MEP-LINCS/MCF7/SS3/AnnotatedData/MCF7_SS3_Level1.txt"), each=4),stringsAsFactors = FALSE)[seq(4,60,4),]
+                        inputFileName=rep(c("../MEP-LINCS/PC3/SS2/AnnotatedData/PC3_SS2_Level1.txt", "../MEP-LINCS/YAPC/SS2/AnnotatedData/YAPC_SS2_Level1.txt", "../MEP-LINCS/MCF7/SS2/AnnotatedData/MCF7_SS2_Level1.txt","../MEP-LINCS/PC3/SS3/AnnotatedData/PC3_SS3_v1.1_Level1.txt", "../MEP-LINCS/YAPC/SS3/AnnotatedData/YAPC_SS3_Level1.txt", "../MEP-LINCS/MCF7/SS3/AnnotatedData/MCF7_SS3_Level1.txt","../MEP-LINCS/PC3/SS3/AnnotatedData/PC3_SS3_v1.1_Level1.txt", "../MEP-LINCS/YAPC/SS3/AnnotatedData/YAPC_SS3_Level1.txt", "../MEP-LINCS/MCF7/SS3/AnnotatedData/MCF7_SS3_Level1.txt","../MEP-LINCS/PC3/SS3/AnnotatedData/PC3_SS3_v1.1_Level1.txt", "../MEP-LINCS/YAPC/SS3/AnnotatedData/YAPC_SS3_Level1.txt", "../MEP-LINCS/MCF7/SS3/AnnotatedData/MCF7_SS3_Level1.txt","../MEP-LINCS/PC3/SS3/AnnotatedData/PC3_SS3_v1.1_Level1.txt", "../MEP-LINCS/YAPC/SS3/AnnotatedData/YAPC_SS3_Level1.txt", "../MEP-LINCS/MCF7/SS3/AnnotatedData/MCF7_SS3_Level1.txt"), each=4),stringsAsFactors = FALSE)[1,]
 
 x <- dataFiles
 

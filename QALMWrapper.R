@@ -227,10 +227,11 @@ dataFiles <- data.frame(CellLine=rep(c("PC3", "YAPC","MCF7"),each=1),
 
 x <- dataFiles
 
-callQANorm <- function(x){
+callQALM <- function(x){
   render(paste0("Mep-LINCS_QALM.Rmd"),
          output_file = paste0("Mep-LINCS_QALM_",x[["CellLine"]],"_",x[["Signal"]],".html"),
-         output_format = "html_document") 
+         output_format = "html_document")
 }
 
-apply(dataFiles, 1, callQANorm)
+
+apply(dataFiles, 1, callQALM)

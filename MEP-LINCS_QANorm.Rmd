@@ -506,3 +506,55 @@ p <- ggplot(dt, aes(x=factor(k), y=valueNormed, colour=Barcode))+
 print(p)
 
 ```
+
+```{r, eval=x[["Method"]]=="RZS"}
+
+
+  nY <- RZSPlate(YPlate[!rownames(YPlate) %in% c("LI8X00426","LI8X00427","LI8X00145"),])
+
+
+  nY$k <- 1
+  
+  #Add a raw value for each k value
+  dt <- melt(YPlate[!rownames(YPlate) %in% c("LI8X00426","LI8X00427","LI8X00145"),], varnames=c("Barcode","WSE"))
+  #Extract ECMp and Well values into separate columns
+  dt$ECMp <- sub("([[:alnum:]]*_){2}","",dt$WSE)
+  dt$Well <- strsplit2(dt$WSE,split="_")[,1]
+  
+  dt <- data.table(dt)
+  dt <- dt[, WSE := NULL]
+  dt <- dt[dt$ECMp==chosenECMp]
+  dt <- data.table(dt, k=1)
+  setkey(dt, Barcode,Well,ECMp,k)
+  nY <- nY[nY$ECMp==chosenECMp]
+  setkey(nY,Barcode,Well,ECMp,k)
+  dt$valueNormed <- nY$value
+  
+  
+p <- ggplot(dt, aes(x=value, y=valueNormed, colour=k))+
+  geom_point(alpha=.5)+
+  facet_grid(Well~Barcode)+
+  ggtitle(paste(x[["Method"]],"Normalized vs Raw",x[["Signal"]],chosenECMp,"replicate responses in",x[["CellLine"]]))
+print(p)
+
+p <- ggplot(dt, aes(x=valueNormed, fill=factor(k)))+
+  geom_density(alpha=.3)+
+  facet_grid(Well~Barcode)+
+  coord_cartesian(ylim=c(0,.8))+
+  ggtitle(paste(x[["Method"]],"Normalized",x[["Signal"]],chosenECMp,"replicate responses in",x[["CellLine"]]))
+print(p)
+
+p <- ggplot(dt, aes(x=factor(k), y=valueNormed, colour=Well))+
+  geom_boxplot()+
+  facet_wrap(~Barcode)+
+  ggtitle(paste(x[["Method"]],"Normalized vs Raw",x[["Signal"]],chosenECMp,"replicate responses in",x[["CellLine"]]))
+print(p)
+
+p <- ggplot(dt, aes(x=factor(k), y=valueNormed, colour=Barcode))+
+  geom_boxplot()+
+  facet_wrap(~Well)+
+  ggtitle(paste(x[["Method"]],"Normalized vs Raw",x[["Signal"]],chosenECMp,"replicate responses in",x[["CellLine"]]))
+print(p)
+
+  
+```
