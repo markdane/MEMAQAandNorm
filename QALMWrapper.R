@@ -1,6 +1,5 @@
 library("rmarkdown")
 library("ruv")
-library("data.table")
 
 plotLEHmap <- function(dt, fill, titleExpression, limits){
   p <- ggplot(dt, aes_string(x="Ligand", y="ECMp", fill = fill))+
@@ -215,26 +214,24 @@ madNaiveRUV2Plate <- function(nu, Y, cIdx, k){
 #m is method
 
 calcResidual <- function(x){
-  mel <- median(x, na.rm=TRUE)
+  mel <- mean(x, na.rm=TRUE)
   return(x-mel)
 }
 
 ####################################
 
-x <- data.table(CellLine=rep(c("PC3", "YAPC","MCF7"),each=3),
-                        StainingSet = rep(c("SS2","SS3","SS3","SS3","SS3"), each=9),
-                        Signal=rep(c("EdU","LineageRatioLog2","DNA2N","SCC","Ecc"), each=9),
-                        Method=c("NaiveRandRUV", "NaiveReplicateRUV","RUV3"),
-                        inputFileName=rep(c("../MEP-LINCS/PC3/SS2/AnnotatedData/PC3_SS2_Level1.txt", "../MEP-LINCS/YAPC/SS2/AnnotatedData/YAPC_SS2_Level1.txt", "../MEP-LINCS/MCF7/SS2/AnnotatedData/MCF7_SS2_Level1.txt","../MEP-LINCS/PC3/SS3/AnnotatedData/PC3_SS3_Level1.txt", "../MEP-LINCS/YAPC/SS3/AnnotatedData/YAPC_SS3_Level1.txt", "../MEP-LINCS/MCF7/SS3/AnnotatedData/MCF7_SS3_Level1.txt","../MEP-LINCS/PC3/SS3/AnnotatedData/PC3_SS3_Level1.txt", "../MEP-LINCS/YAPC/SS3/AnnotatedData/YAPC_SS3_Level1.txt", "../MEP-LINCS/MCF7/SS3/AnnotatedData/MCF7_SS3_Level1.txt","../MEP-LINCS/PC3/SS3/AnnotatedData/PC3_SS3_Level1.txt", "../MEP-LINCS/YAPC/SS3/AnnotatedData/YAPC_SS3_Level1.txt", "../MEP-LINCS/MCF7/SS3/AnnotatedData/MCF7_SS3_Level1.txt","../MEP-LINCS/PC3/SS3/AnnotatedData/PC3_SS3_Level1.txt", "../MEP-LINCS/YAPC/SS3/AnnotatedData/YAPC_SS3_Level1.txt", "../MEP-LINCS/MCF7/SS3/AnnotatedData/MCF7_SS3_Level1.txt"), each=3))[30,]
+dataFiles <- data.frame(CellLine=rep(c("PC3", "YAPC","MCF7"),each=1),
+                        StainingSet = rep(c("SS2","SS3","SS3","SS3","SS3"), each=3),
+                        Signal=rep(c("EdU","LineageRatioLog2","DNA2N","SCC","Ecc"), each=3),
+                        inputFileName=rep(c("../MEP-LINCS/PC3/SS2/AnnotatedData/PC3_SS2_Level1.txt", "../MEP-LINCS/YAPC/SS2/AnnotatedData/YAPC_SS2_Level1.txt", "../MEP-LINCS/MCF7/SS2/AnnotatedData/MCF7_SS2_Level1.txt","../MEP-LINCS/PC3/SS3/AnnotatedData/PC3_SS3_Level1.txt", "../MEP-LINCS/YAPC/SS3/AnnotatedData/YAPC_SS3_Level1.txt", "../MEP-LINCS/MCF7/SS3/AnnotatedData/MCF7_SS3_Level1.txt","../MEP-LINCS/PC3/SS3/AnnotatedData/PC3_SS3_Level1.txt", "../MEP-LINCS/YAPC/SS3/AnnotatedData/YAPC_SS3_Level1.txt", "../MEP-LINCS/MCF7/SS3/AnnotatedData/MCF7_SS3_Level1.txt","../MEP-LINCS/PC3/SS3/AnnotatedData/PC3_SS3_Level1.txt", "../MEP-LINCS/YAPC/SS3/AnnotatedData/YAPC_SS3_Level1.txt", "../MEP-LINCS/MCF7/SS3/AnnotatedData/MCF7_SS3_Level1.txt","../MEP-LINCS/PC3/SS3/AnnotatedData/PC3_SS3_Level1.txt", "../MEP-LINCS/YAPC/SS3/AnnotatedData/YAPC_SS3_Level1.txt", "../MEP-LINCS/MCF7/SS3/AnnotatedData/MCF7_SS3_Level1.txt"), each=1),stringsAsFactors = FALSE)
 
-callQASVD <- function(x){
-  render(paste0("Mep-LINCS_QASVD.Rmd"),
-         output_file = paste0("Mep-LINCS_QA_SVD_",x[["CellLine"]],"_",x[["Signal"]],".html"),
-         output_format = "html_document") 
+x <- dataFiles
+
+callQALM <- function(x){
+  render(paste0("Mep-LINCS_QALM.Rmd"),
+         output_file = paste0("Mep-LINCS_QALM_",x[["CellLine"]],"_",x[["Signal"]],".html"),
+         output_format = "html_document")
 }
 
-x <- unique(x[,list(CellLine, StainingSet, Signal, inputFileName)])
 
-apply(x, 1, callQASVD)
-#tmp <- x[,callQASVD(.SD), by="CellLine,StainingSet", .SDcols=c("CellLine","Signal","inputFileName")]
-
+apply(dataFiles, 1, callQALM)

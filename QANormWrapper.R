@@ -1,6 +1,24 @@
 library("rmarkdown")
 library("ruv")
 
+naiveRandRUV_MD <- function (Y, cIdx, nuCoeff = 0.001, k = nrow(Y)) 
+{
+  if (k == 0) {
+    nY <- Y
+  } else if (k==1){
+  svdYc <- svd(Y[, cIdx])
+  W <- svdYc$u[, 1:k] * svdYc$d[1]
+  nu <- nuCoeff * svdYc$d[1]^2
+  nY <- Y - W %*% solve(t(W) %*% W + nu * diag(k), t(W) %*% Y)
+  } else {
+    svdYc <- svd(Y[, cIdx])
+    W <- svdYc$u[, 1:k] %*% diag(svdYc$d[1:k])
+    nu <- nuCoeff * svdYc$d[1]^2
+    nY <- Y - W %*% solve(t(W) %*% W + nu * diag(k), t(W) %*% Y)
+  }
+  return(nY)
+}
+
 plotLEHmap <- function(dt, fill, titleExpression, limits){
   p <- ggplot(dt, aes_string(x="Ligand", y="ECMp", fill = fill))+
     geom_tile()+
@@ -88,7 +106,7 @@ madNaiveReplicateRUV2 <- function(k, Y, cIdx, scIdx){
 
 medianRUVIIIPlate <- function(k, Y, M, cIdx){
   #browser()
-  nY <- RUVIII(Y, M, cIdx, k)
+  nY <- RUVIII(Y, M, cIdx, k)["newY"]
   #melt matrix to have ECMp and Ligand columns
   nYm <- melt(nY, varnames=c("Barcode","WSE"))
   #Extract ECMp and Well values into separate columns
@@ -104,7 +122,7 @@ medianRUVIIIPlate <- function(k, Y, M, cIdx){
 
 madRUVIIIPlate <- function(k, Y, M, cIdx){
   #browser()
-  nY <- RUVIII(Y, M, cIdx, k)
+  nY <- RUVIII(Y, M, cIdx, k)["newY"]
   #melt matrix to have ECMp and Ligand columns
   nYm <- melt(nY, varnames=c("Barcode","WSE"))
   #Extract ECMp and Well values into separate columns
@@ -116,6 +134,50 @@ madRUVIIIPlate <- function(k, Y, M, cIdx){
   nYm <- nYm[, WSE := NULL]
   nYM <- nYm[,list(Value = mad(value)), by="Barcode,Well,ECMp"]
   return(nYM)
+}
+
+medianRZS <- function(Y){
+  #RZS Normalize each row of Y
+  nY <- apply(Y,1, function(x){
+    xCtrl <- x[grepl("A03", names(x))]
+    xMedian <- median(xCtrl,na.rm=TRUE)
+    #impute answers if xMAD is 0
+    xMad <- mad(xCtrl,na.rm = TRUE)+.01
+    xRZS <- (x-xMedian)/xMad
+  })
+  #melt matrix to have ECMp and Ligand columns
+  nYm <- melt(nY, varnames=c("WSE","Barcode"))
+  #Extract ECMp and Well values into separate columns
+  nYm$ECMp <- sub("([[:alnum:]]*_){2}","",nYm$WSE)
+  nYm$Well <- strsplit2(nYm$WSE,split="_")[,1]
+  
+  #Median summarize by MEP
+  nYm <- data.table(nYm)
+  nYm <- nYm[, WSE := NULL]
+  nYm <- nYm[,list(Value = median(value, na.rm=TRUE)), by="Barcode,Well,ECMp"]
+  return(nYm)
+}
+
+madRZS <- function(Y){
+  #RZS Normalize each row of Y
+  nY <- apply(Y,1, function(x){
+    xCtrl <- x[grepl("A03", names(x))]
+    xMedian <- median(xCtrl,na.rm=TRUE)
+    #impute answers if xMAD is 0
+    xMad <- mad(xCtrl,na.rm = TRUE)+.01
+    xRZS <- (x-xMedian)/xMad
+  })
+  #melt matrix to have ECMp and Ligand columns
+  nYm <- melt(nY, varnames=c("WSE","Barcode"))
+  #Extract ECMp and Well values into separate columns
+  nYm$ECMp <- sub("([[:alnum:]]*_){2}","",nYm$WSE)
+  nYm$Well <- strsplit2(nYm$WSE,split="_")[,1]
+  
+  #Median summarize by MEP
+  nYm <- data.table(nYm)
+  nYm <- nYm[, WSE := NULL]
+  nYm <- nYm[,list(Value = mad(value)), by="Barcode,Well,ECMp"]
+  return(nYm)
 }
 
 addMarginValues <- function(dt, mValue, MValue){
@@ -155,6 +217,7 @@ plotCenteredBoxes <- function(dt, value, groupBy, colourBy=NULL, titleExpression
 
 RUVIII = function(Y, M, ctl, k=NULL, eta=NULL, average=FALSE, fullalpha=NULL)
 {
+  #browser()
   Y = RUV1(Y,eta,ctl)
   if (is.null(k))
   {
@@ -208,23 +271,92 @@ madNaiveRUV2Plate <- function(nu, Y, cIdx, k){
   nYM <- nYm[,list(Value = mad(value)), by="Barcode,Well,ECMp"]
   return(nYM)
 }
-#cellLine
-#ss is staining set
-#s is signal
-#m is method
+
 
 calcResidual <- function(x){
   mel <- median(x, na.rm=TRUE)
   return(x-mel)
 }
 
+naiveRUV2Plate <- function(k, nu, Y, cIdx){
+  #browser()
+  nY <- naiveRandRUV_MD(Y, cIdx, nu, k)
+  #melt matrix to have ECMp and Ligand columns
+  nYm <- melt(nY, varnames=c("Barcode","WSE"))
+  #Extract ECMp and Well values into separate columns
+  nYm$ECMp <- sub("([[:alnum:]]*_){2}","",nYm$WSE)
+  nYm$Spot <- strsplit2(nYm$WSE,split="_")[,2]
+  nYm$Well <- strsplit2(nYm$WSE,split="_")[,1]
+  nYm$k <- k
+  
+  #Median summarize by MEP
+  nYm <- data.table(nYm)
+  nYm <- nYm[, WSE := NULL]
+
+  return(nYm)
+}
+
+naiveReplicateRUV2Plate <- function(k, Y, cIdx, scIdx){
+  nY <- naiveReplicateRUV(Y, cIdx, scIdx, k)$cY
+  #Median summarize the normalized values
+  #melt matrix to have ECMp and Ligand columns
+  nYm <- melt(nY, varnames=c("BWL","SE"))
+  #Recreate a MEP column
+  nYm$ECMp <- sub("([[:alnum:]]*_){1}","",nYm$SE)
+  nYm$Ligand <- sub("([[:alnum:]]*_){2}","",nYm$BWL)
+  nYm$MEP <- paste(nYm$ECMp,nYm$Ligand, sep="_")
+  nYm$Barcode <- strsplit2(nYm$BWL,split="_")[,1]
+  nYm$k <- k
+  #Median summarize by MEP
+  nYm <- data.table(nYm)
+  nYm <- nYm[, BWL := NULL]
+  nYm <- nYm[, SE := NULL]
+  nYm$k <- k
+  return(nYm)
+}
+
+RUVIIIPlate <- function(k, Y, M, cIdx){
+  #browser()
+  nY <- RUVIII(Y, M, cIdx, k)["newY"]
+  #melt matrix to have ECMp and Ligand columns
+  nYm <- melt(nY, varnames=c("Barcode","WSE"), as.is=TRUE)
+  #Extract ECMp and Well values into separate columns
+  nYm$ECMp <- sub("([[:alnum:]]*_){2}","",nYm$WSE)
+  nYm$Well <- strsplit2(nYm$WSE,split="_")[,1]
+  
+  nYm <- data.table(nYm)
+  nYm <- nYm[, WSE := NULL]
+  nYm$k <- k
+  return(nYm)
+}
+
+RZSPlate <- function(Y){
+  #RZS Normalize each row of Y
+  nY <- apply(Y,1, function(x){
+    xCtrl <- x[grepl("A03", names(x))]
+    xMedian <- median(xCtrl,na.rm=TRUE)
+    #impute answers if xMAD is 0
+    xMad <- mad(xCtrl,na.rm = TRUE)+.01
+    xRZS <- (x-xMedian)/xMad
+  })
+  #melt matrix to have ECMp and Ligand columns
+  nYm <- melt(nY, varnames=c("WSE","Barcode"))
+  #Extract ECMp and Well values into separate columns
+  nYm$ECMp <- sub("([[:alnum:]]*_){2}","",nYm$WSE)
+  nYm$Well <- strsplit2(nYm$WSE,split="_")[,1]
+  
+  #Median summarize by MEP
+  nYm <- data.table(nYm)
+  nYm <- nYm[, WSE := NULL]
+  return(nYm)
+}
 ####################################
 
-dataFiles <- data.frame(CellLine=rep(c("PC3", "YAPC","MCF7"),each=3),
-                        StainingSet = rep(c("SS2","SS3","SS3","SS3","SS3"), each=9),
-                        Signal=rep(c("EdU","LineageRatioLog2","DNA2N","SCC","Ecc"), each=9),
-                        Method=c("NaiveRandRUV", "NaiveReplicateRUV","RUV3"),
-                        inputFileName=rep(c("../MEP-LINCS/PC3/SS2/AnnotatedData/PC3_SS2_Level1.txt", "../MEP-LINCS/YAPC/SS2/AnnotatedData/YAPC_SS2_Level1.txt", "../MEP-LINCS/MCF7/SS2/AnnotatedData/MCF7_SS2_Level1.txt","../MEP-LINCS/PC3/SS3/AnnotatedData/PC3_SS3_Level1.txt", "../MEP-LINCS/YAPC/SS3/AnnotatedData/YAPC_SS3_Level1.txt", "../MEP-LINCS/MCF7/SS3/AnnotatedData/MCF7_SS3_Level1.txt","../MEP-LINCS/PC3/SS3/AnnotatedData/PC3_SS3_Level1.txt", "../MEP-LINCS/YAPC/SS3/AnnotatedData/YAPC_SS3_Level1.txt", "../MEP-LINCS/MCF7/SS3/AnnotatedData/MCF7_SS3_Level1.txt","../MEP-LINCS/PC3/SS3/AnnotatedData/PC3_SS3_Level1.txt", "../MEP-LINCS/YAPC/SS3/AnnotatedData/YAPC_SS3_Level1.txt", "../MEP-LINCS/MCF7/SS3/AnnotatedData/MCF7_SS3_Level1.txt","../MEP-LINCS/PC3/SS3/AnnotatedData/PC3_SS3_Level1.txt", "../MEP-LINCS/YAPC/SS3/AnnotatedData/YAPC_SS3_Level1.txt", "../MEP-LINCS/MCF7/SS3/AnnotatedData/MCF7_SS3_Level1.txt"), each=3),stringsAsFactors = FALSE)[16:18,]
+dataFiles <- data.frame(CellLine=rep(c("PC3", "YAPC","MCF7"),each=4),
+                        StainingSet = rep(c("SS2","SS3","SS3","SS3","SS3"), each=12),
+                        Signal=rep(c("EdU","LineageRatioLog2","DNA2N","SCC","Ecc"), each=12),
+                        Method=c("RZS","NaiveRandRUV", "NaiveReplicateRUV","RUV3"),
+                        inputFileName=rep(c("../MEP-LINCS/PC3/SS2/AnnotatedData/PC3_SS2_Level1.txt", "../MEP-LINCS/YAPC/SS2/AnnotatedData/YAPC_SS2_Level1.txt", "../MEP-LINCS/MCF7/SS2/AnnotatedData/MCF7_SS2_Level1.txt","../MEP-LINCS/PC3/SS3/AnnotatedData/PC3_SS3_v1.1_Level1.txt", "../MEP-LINCS/YAPC/SS3/AnnotatedData/YAPC_SS3_Level1.txt", "../MEP-LINCS/MCF7/SS3/AnnotatedData/MCF7_SS3_Level1.txt","../MEP-LINCS/PC3/SS3/AnnotatedData/PC3_SS3_v1.1_Level1.txt", "../MEP-LINCS/YAPC/SS3/AnnotatedData/YAPC_SS3_Level1.txt", "../MEP-LINCS/MCF7/SS3/AnnotatedData/MCF7_SS3_Level1.txt","../MEP-LINCS/PC3/SS3/AnnotatedData/PC3_SS3_v1.1_Level1.txt", "../MEP-LINCS/YAPC/SS3/AnnotatedData/YAPC_SS3_Level1.txt", "../MEP-LINCS/MCF7/SS3/AnnotatedData/MCF7_SS3_Level1.txt","../MEP-LINCS/PC3/SS3/AnnotatedData/PC3_SS3_v1.1_Level1.txt", "../MEP-LINCS/YAPC/SS3/AnnotatedData/YAPC_SS3_Level1.txt", "../MEP-LINCS/MCF7/SS3/AnnotatedData/MCF7_SS3_Level1.txt"), each=4),stringsAsFactors = FALSE)[1,]
 
 x <- dataFiles
 
