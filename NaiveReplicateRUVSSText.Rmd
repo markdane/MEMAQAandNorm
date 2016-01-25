@@ -1,0 +1,4 @@
+
+###NaiveReplicateRUV2 with Staining Set as Unit of Study
+
+In the following plots naiveReplicateRUV-2 normalization is applied to the `r unique(x[["Signal"]])` signal of all spots with a staining set of plates as the unit of study. The input data is a 3x44,416 matrix of transformed `r unique(x[["Signal"]])` values. The A03 FBS wells are designated as negative controls. All spots are designated as replicates. The faceted plots show various values of the k parameter.
