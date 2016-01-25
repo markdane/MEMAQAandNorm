@@ -388,7 +388,7 @@ ssDataFiles <- data.frame(CellLine=rep(c("PC3", "YAPC","MCF7"),each=3),
 
 callSSQANorm <- function(x){
   render(paste0("Mep-LINCS_QANorm.Rmd"),
-         output_file = paste0("Mep-LINCS_QANorm_",x[["CellLine"]],"_",x[["Signal"]],"_",x[["Method"]],".html"),
+         output_file = paste0("Mep-LINCS_QANorm_",unique(x[["CellLine"]]),"_",unique(x[["Signal"]]),"_",unique(x[["Method"]]),".html"),
          output_format = "html_document") 
 }
 

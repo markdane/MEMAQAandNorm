@@ -23,10 +23,11 @@ library("RUVnormalize")
 #Read in file based on name in dataframe
 #TODO add staining set to l1 matrix
 if(unique(x[["Unit"]])=="StainingSet"){
-  l1 <- rbindlist(lapply(x[["inputFileName"]], function(x){
-    l1 <- fread(x, showProgress = FALSE)
+  l1 <- rbindlist(apply(x, 1, function(xrow){
+    l1 <- fread(xrow[["inputFileName"]], showProgress = FALSE)
     #Keep the control wells separate
     l1$Ligand[l1$Ligand=="FBS"] <- paste(l1$Ligand[l1$Ligand=="FBS"],"C",as.numeric(factor(l1$Barcode[l1$Ligand=="FBS"])),sep="")
+    l1$StainingSet <- xrow[["StainingSet"]]
     return(l1)
   }), use.names=TRUE, fill=TRUE)
   keepCols <- grep("Cells_|Cytoplasm_|Fibrillarin|Edu|H3|_KRT|Lineage|Endpoint",colnames(l1), invert=TRUE,value=TRUE)
@@ -65,6 +66,7 @@ l1$Nuclei_PA_AreaShape_EccentricityLogit <- log2(EccImpute/(1-EccImpute))
 l3 <- l1[,list(Ligand=unique(Ligand), LigandAnnotID=unique(LigandAnnotID),
                ECMp=unique(ECMp), ECMpAnnotID=unique(ECMpAnnotID),
                MEP=unique(MEP),
+               StainingSet=unique(StainingSet),
                Row=unique(Row), Column = unique(Column), Block=unique(Block), ID=unique(ID),
                ArrayRow=unique(ArrayRow), ArrayColumn=unique(ArrayColumn),
                DNA2Nmel = median(Nuclei_PA_Cycle_DNA2NProportionLogit, na.rm=TRUE),
@@ -80,6 +82,9 @@ if(!any(!x[["StainingSet"]] == "SS2")){
   l3$LineageRatioLog2mel <- l1[,list(LineageRatioLog2mel = median(Cytoplasm_PA_Intensity_LineageRatioLog2, na.rm=TRUE)),by=.(Barcode,Well,Spot)][,LineageRatioLog2mel]
   l3 <- l3[, LineageRatioLog2Rel := calcResidual(LineageRatioLog2mel), by="MEP"]
 }
+l3$LigandAnnotID <- sub("_","-",l3$LigandAnnotID)
+l3$Ligand <- sub("_","-",l3$Ligand)
+
 
 l1MEPs <- l3[,list(mel = median(eval(parse(text=paste0(unique(unique(x[["Signal"]])),"mel")))),
                    Mel = mad(eval(parse(text=paste0(unique(x[["Signal"]]),"mel"))))),
@@ -103,6 +108,7 @@ l3$BWL <- paste(l3$Barcode,l3$Well,l3$Ligand,sep="_")
 l3$SE <- paste(l3$RSpot,l3$ECMp,sep="_")
 l3$BW <- paste(l3$Barcode,l3$Well,sep="_")
 l3$WSE <- paste(l3$Well, l3$RSpot,l3$ECMp,sep="_")
+l3$BWLSE <- paste(l3$Barcode, l3$Well, l3$Ligand, l3$RSpot,l3$ECMp,sep="_")
 
 #Cast to get mel values by barcode_well_ligand rows and spot columns
 #logit transform the values that are porportions in the [0,1] range
@@ -134,6 +140,15 @@ l3PlateC <- dcast(l3, Barcode~WSE, value.var=paste0(unique(x[["Signal"]]),"mel")
 #Remove the Barcode column and use it as rownames in the matrix
 l3m <- l3PlateC[,grep("Barcode",colnames(l3PlateC), value=TRUE, invert=TRUE), with=FALSE]
 YPlate <- matrix(unlist(l3m), nrow=nrow(l3m), dimnames=list(l3PlateC$Barcode, colnames(l3m)))
+
+#Set up data with staining set as the unit, 3x44416
+#Cast to get mel values with Staining Set rows and Barcode+well+Spot+ECMp columns
+#Use the names to hold the spot contents
+#Coerce missing values to have near 0 proliferation signals
+l3ssC <- dcast(l3, StainingSet~BWLSE, value.var=paste0(unique(x[["Signal"]]),"mel"), fill = fill)
+l3m <- l3ssC[,grep("StainingSet",colnames(l3ssC), value=TRUE, invert=TRUE), with=FALSE]
+Yss <- matrix(unlist(l3m), nrow=nrow(l3m), dimnames=list(l3ssC$StainingSet, colnames(l3m)))
+
 ```
 
 ---
@@ -231,32 +246,58 @@ nY <- rbindlist(nYkList)
 
 
 ```{r, eval=unique(x[["Method"]])=="NaiveReplicateRUVSS"}
+medianNaiveReplicateRUV2SS <- function(k, Y, cIdx, scIdx){
+  nY <- naiveReplicateRUV(Y, cIdx, scIdx, k)$cY
+  #Median summarize the normalized values
+  #melt matrix to have ECMp and Ligand columns
+  nYm <- melt(nY, varnames=c("StainingSet","BWLSE"))
+  #Recreate a MEP column
+  splits <- strsplit2(nYm$BWLSE,split="_")
+  #This fails because sometimes there is an _ in the ligand name
+  nYm$ECMp <- splits[,5]
+  nYm$Barcode <- splits[,1]
+  nYm$Ligand <- splits[,3]
+  nYm$MEP <- paste(nYm$ECMp,nYm$Ligand, sep="_")
+  #Median summarize by MEP
+  nYm <- data.table(nYm)
+  nYm <- nYm[, BWLSE := NULL]
+  nYm <- nYm[,list(Value = median(value)), by="StainingSet,Barcode,MEP,ECMp,Ligand"]
+  return(nYm)
+}
 
-#Set up data with staining set as the unit, 3x44416
-Yss <- rbindlist(lapply(unique(l3m$StainingSet), function(ss){
-  setkey(l3m,StainingSet)
-  ssDT <- l3m[ss,]
-  ssDT <- ssDT[,StainingSet := NULL]
-  ssDTc <- cbind(ssDT[1,],ssDT[2,],ssDT[3,],ssDT[4,],ssDT[5,],ssDT[6,],ssDT[7,],ssDT[8,])
-  }))
+madNaiveReplicateRUV2SS <- function(k, Y, cIdx, scIdx){
+  nY <- naiveReplicateRUV(Y, cIdx, scIdx, k)$cY
+  #MAD summarize the normalized values
+  #melt matrix to have ECMp and Ligand columns
+  nYm <- melt(nY, varnames=c("StainingSet","BWLSE"))
+  #Recreate a MEP column
+  splits <- strsplit2(nYm$BWLSE,split="_")
+  nYm$ECMp <- splits[,5]
+  nYm$Barcode <- splits[,1]
+  nYm$Ligand <- splits[,3]
+  nYm$MEP <- paste(nYm$ECMp,nYm$Ligand, sep="_")
+  #MAD summarize by MEP
+  nYm <- data.table(nYm)
+  nYm <- nYm[, BWLSE := NULL]
+  nYm <- nYm[,list(Value = mad(value)), by="StainingSet,Barcode,MEP,ECMp,Ligand"]
+  return(nYm)
+}
 
 #Set up replicate index matrix with A03 wells as replicates
-replicateWells <- which(grepl("A03",rownames(YArray)))
 scIdx <- matrix(1:3, 1, 3)
 
 cIdx=which(grepl("A03",colnames(Yss)))
 
 nYkList <- lapply(1:2, function(k, Y, cIdx, scIdx, mValue, MValue){
-  browser()
   #Normalize the spot level data then median summarize
-  nYm <- medianNaiveReplicateRUV2(k, Y, cIdx, scIdx)
+  nYm <- medianNaiveReplicateRUV2SS(k, Y, cIdx, scIdx)
   setnames(nYm, "Value", "mel")
   #Normalize the spot level data then MAD summarize
-  #Debug fails here, maybe due to Y bein a data.table
-  nYM <- madNaiveReplicateRUV2(k, Y, cIdx, scIdx)
-  setnames(nYM, "Value", "Mel")
-  setkey(nYm,Barcode,MEP,ECMp,Ligand)
-  setkey(nYM, Barcode,MEP,ECMp,Ligand)
+  #Debug fails here, may be due to Y being a data.table
+   nYM <- madNaiveReplicateRUV2SS(k, Y, cIdx, scIdx)
+   setnames(nYM, "Value", "Mel")
+  setkey(nYm, StainingSet,Barcode,MEP,ECMp,Ligand)
+  setkey(nYM, StainingSet,Barcode,MEP,ECMp,Ligand)
   nY <- merge(nYm, nYM)
   #Add margin values
   nY <- addMarginValues(dt=nY, mValue="mel",MValue="Mel")
@@ -355,7 +396,7 @@ p <- ggplot(nY,aes_string(x=groupBy, y=value))+
 
 if(unique(x[["Method"]]) %in% c("NaiveRandRUV")){
   p <- p +  facet_grid(k~nu, labeller = labeller(nu = label_both, k = label_both))
-} else if (unique(x[["Method"]]) %in% c("NaiveReplicateRUV","RUV3")) {
+} else if (unique(x[["Method"]]) %in% c("NaiveReplicateRUV","RUV3","NaiveReplicateRUVSS")) {
   p <- p + facet_grid(k~., labeller = labeller(k = label_both))
 } else if (unique(x[["Method"]]) %in% c("RZS")) {
   p <- p
@@ -391,7 +432,7 @@ p <- ggplot(nY,aes_string(x=groupBy, y=value, colour=colourBy))+
 
 if(unique(x[["Method"]]) %in% c("NaiveRandRUV")){
   p <- p +  facet_grid(k~nu, labeller = labeller(nu = label_both, k = label_both))
-} else if (unique(x[["Method"]]) %in% c("NaiveReplicateRUV","RUV3")) {
+} else if (unique(x[["Method"]]) %in% c("NaiveReplicateRUV","RUV3","NaiveReplicateRUVSS")) {
   p <- p + facet_grid(k~., labeller = labeller(k = label_both))
 } else if (unique(x[["Method"]]) %in% c("RZS")) {
   p <- p
@@ -401,7 +442,8 @@ suppressWarnings(print(p))
 
 ```
 
-```{r, eval=(x[["CellLine"]]=="PC3" & x[["StainingSet"]]=="SS2")|(x[["CellLine"]]=="MCF7" & x[["StainingSet"]]=="SS2")}
+```{r, eval=FALSE}
+#eval=(x[["CellLine"]]=="PC3" & x[["StainingSet"]]=="SS2")|(x[["CellLine"]]=="MCF7" & x[["StainingSet"]]=="SS2")
 cat("Removing plates LI8X00426, LI8X00427 and LI8X00145")
 
 #remove the 426, 427 and 145 plates as they are poor quality and cannot
@@ -439,7 +481,7 @@ plotCenteredBoxes(dt = nYF, value = value, groupBy = groupBy, colourBy = "Barcod
 ```
 
 
-```{r col1_FBSNormed}
+```{r col1_FBSNormed, eval=FALSE}
 
 chosenECMp <- "COL1"
 
@@ -537,7 +579,7 @@ if(unique(x[["Method"]])=="RUV3")
   setkey(nY,Barcode,Ligand,ECMp,k)
   dt$valueNormed <- nY$value
   
-} else stop(paste(unique(x[["Method"]])," is an unsupported normailization method"))
+} else stop(paste(unique(x[["Method"]])," is an unsupported normalization method"))
 
 p <- ggplot(dt, aes(x=value, y=valueNormed, colour=k))+
   geom_point(alpha=.5)+
