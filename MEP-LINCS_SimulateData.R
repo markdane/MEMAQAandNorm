@@ -16,77 +16,33 @@ library(plotly)
 
 
 source("~/Documents/MEP-LINCS/MEPLINCSFunctions.R")
-
-
-addMarginValues <- function(dt, mValue, MValue){
-  #browser()
-  dt.l <- dt[,list(m.l = median(get(mValue), na.rm = TRUE),
-                   M.l = median(get(MValue), na.rm= TRUE)),
-             by="Ligand"]
-  
-  dte. <- dt[,list(me. = median(get(mValue), na.rm = TRUE),
-                   Me. = median(get(MValue), na.rm= TRUE)),
-             by="ECMp"]
-  
-  setkey(dt,Ligand)
-  setkey(dt.l,Ligand)
-  dtm <- merge(dt,dt.l)
-  
-  setkey(dtm,ECMp)
-  setkey(dte.,ECMp)
-  dtmm <- merge(dtm, dte.) 
-  return(dtmm)
-}
-
-plotCenteredBoxes <- function(dt, value, groupBy, colourBy=NULL, titleExpression, yLimits=NULL){
-  
-  if(is.null(colourBy))  p <- ggplot(dt,aes_string(x=groupBy, y=value))
-  else p <- ggplot(dt,aes_string(x=groupBy, y=value, colour=colourBy))
-  
-  p <- p + geom_boxplot()+ 
-    ggtitle(titleExpression)+
-    xlab("")+ylab("")+
-    guides(fill=FALSE)+
-    coord_cartesian(ylim=yLimits)+
-    theme_grey(base_size = 12, base_family = "")+
-    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(1)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(1)))
-  suppressWarnings(print(p))
-}
-
-
-plotLEHmap <- function(dt, fill, titleExpression, limits){
-  p <- ggplot(dt, aes_string(x="Ligand", y="ECMp", fill = fill))+
-    geom_tile()+
-    scale_fill_gradient(low="white",high="red",oob = scales::squish,
-                        limits=limits)+
-    ggtitle(titleExpression)+
-    xlab("")+ylab("")+
-    guides(fill=FALSE)+
-    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.6)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(.5)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.7)),panel.grid.major = element_line(linetype = 'blank'),panel.background = element_rect(fill = "dimgray"))
-  suppressWarnings(print(p))
-}
+source("~/Documents/MEMAQAandNorm/MEP-LINCS QANorm Functions.R")
 
 
 #Use the phase 2 GAL file to set the layout
 # Read and clean spotmetadata
 
-#Read in the spot metadata from the gal file
-spotMetadata <- readSpotMetadata("~/Documents/MEP-LINCS/GALFiles/20160120_LI8X001_2.gal")
-#Relabel the column Name to ECMpAnnotID
-setnames(spotMetadata, "Name", "ECMpAnnotID")
+convert48ECMGAL <- function(filename, minEffect=.95, maxEffect=1.05){
+  #Read in the spot metadata from the gal file
+  spotMetadata <- readSpotMetadata(filename)
+  #Relabel the column Name to ECMpAnnotID
+  setnames(spotMetadata, "Name", "ECMpAnnotID")
+  
+  #Create a data table with the Actual-Simulated replacements
+  ECMReplace <- data.table(Actual=unique(spotMetadata$ECMpAnnotID),Simulated=unique(spotMetadata$ECMpAnnotID))
+  ECMReplace$Simulated[!grepl("Fiducial|PBS",ECMReplace$Simulated)]<-sprintf("ECMp%02d", 1:48)
+  ECMReplace$ECMpER <- c(1,ECMpER=seq(minEffect, maxEffect,length.out = 48),0)
+  
+  #replace the actual ECMp names
+  setkey(spotMetadata,ECMpAnnotID)
+  setkey(ECMReplace,Actual)
+  spotMetadata <- spotMetadata[ECMReplace]
+  spotMetadata <- spotMetadata[,ECMpAnnotID :=NULL]
+  setnames(spotMetadata,"Simulated","ECMpAnnotID")
+  return(spotMetadata)
+}
 
-#Create a data table with the Actual-Simulated replacements
-ECMReplace <- data.table(Actual=unique(spotMetadata$ECMpAnnotID),Simulated=unique(spotMetadata$ECMpAnnotID))
-ECMReplace$Simulated[!grepl("Fiducial|PBS",ECMReplace$Simulated)]<-paste0("ECMp",1:48)
-ECMReplace$ECMpER <- c(1,ECMpER=seq(.95,1.05,length.out = 48),0)
-
-#replace the actual ECMp names
-setkey(spotMetadata,ECMpAnnotID)
-setkey(ECMReplace,Actual)
-spotMetadata <- spotMetadata[ECMReplace]
-spotMetadata <- spotMetadata[,ECMpAnnotID :=NULL]
-setnames(spotMetadata,"Simulated","ECMpAnnotID")
-
+spotMetadata <- convert48ECMGAL("~/Documents/MEP-LINCS/GALFiles/20160120_LI8X001_2.gal",minEffect=.95, maxEffect=1.05)
 #Make a rotated version of the spot metadata to match the print orientation
 setkey(spotMetadata,Spot)
 spotMetadata180 <- rotateMetadata(spotMetadata)
@@ -95,7 +51,7 @@ spotMetadata180 <- rotateMetadata(spotMetadata)
 wmd <-data.table(Barcode=rep(paste0("LI8S","0000",1:8), each=8*700),
                  Well=rep(wellAN(2,4), each=700),
                  CellLine="SimCell",
-                 LigandAnnotID=rep(paste0("Ligand",1:64), each=700),
+                 LigandAnnotID=rep(sprintf("Ligand%02d", 1:64), each=700),
                  LigandER=rep(seq(.8,1.2,length.out = 64), each=700))
 setkey(wmd,Barcode,Well)
 #Create A row and B row array metadata 
@@ -142,10 +98,18 @@ nmdDT <- merge(nDT,mdDT)
 setkey(l3, Barcode, Well, Spot)
 slDT <- merge(l3[,normParameters, with = FALSE], nmdDT)
 
-p <- create8WellPseudoImage(slDT,pr = "Spot_PA_SpotCellCount",prDisplay = "SCC")
-print(p)
+for(barcode in  unique(slDT$Barcode)){
+  setkey(slDT,Barcode)
+  DT <- slDT[barcode]
+  p <- create8WellPseudoImage(DT,pr = "Spot_PA_SpotCellCount",prDisplay = "SCC")
+  print(p)
+  
+  p <- create8WellHistograms(DT,pr = "Spot_PA_SpotCellCount",prDisplay = "SCC")
+  print(p)
+}
 
-DT <- l3[l3$Ligand=="Ligand1"]
+
+DT <- l3[l3$Ligand=="Ligand01"]
 p <- ggplot(DT, aes(x=ECMpAnnotID))+
   geom_bar(width=.8)+geom_hline(yintercept = mean(table(DT$ECMpAnnotID)), colour="blue")+
   ggtitle(" \n\nCount of Replicate ECM Proteins In Each MEMA")+
@@ -156,17 +120,17 @@ print(p)
 
 #TEMP: Use format in QA Norm
 x<-data.frame(Signal="SCC",Method="RUV3")
-l3$SCCmel <- as.numeric(median(log2(l3$Spot_PA_SpotCellCount), na.rm=TRUE))
+slDT$SCCmel <- log2(slDT$Spot_PA_SpotCellCount)
 
-l1MEPs <- l3[,list(mel = median(eval(parse(text=paste0(unique(unique(x[["Signal"]])),"mel")))),
+mlDT <- slDT[,list(mel = median(eval(parse(text=paste0(unique(unique(x[["Signal"]])),"mel")))),
                    Mel = mad(eval(parse(text=paste0(unique(x[["Signal"]]),"mel"))))),
              by="Barcode,Well,Ligand,ECMp,MEP"]
-#l1MEPS is the data.table of the MEP level, raw, transformed responses
-l1MEPs <- addMarginValues(l1MEPs,"mel","Mel")
+#mlDT is the data.table of the MEP level, raw, transformed SCC responses
+mlDT <- addMarginValues(mlDT,"mel","Mel")
 
 #calculate the overall median and MAD for the staining set
-m.. <- median(l1MEPs$mel, na.rm = TRUE)
-M.. <- median(l1MEPs$Mel, na.rm = TRUE)
+m.. <- median(mlDT$mel, na.rm = TRUE)
+M.. <- median(mlDT$Mel, na.rm = TRUE)
 
 
 #For an array  Unit of study there are 64 'samples'of 594 spots with 8 replicates
@@ -212,10 +176,10 @@ l3m <- l3PlateC[,grep("Barcode",colnames(l3PlateC), value=TRUE, invert=TRUE), wi
 YPlate <- matrix(unlist(l3m), nrow=nrow(l3m), dimnames=list(l3PlateC$Barcode, colnames(l3m)))
 
 
-limits=quantile(l1MEPs[["mel"]], probs=c(.005, .995), na.rm=TRUE)
+limits=quantile(mlDT[["mel"]], probs=c(.005, .995), na.rm=TRUE)
 titleExpression <- bquote(.(unique(x[["Signal"]]))~Medians~(m["e,l"]))
-plotLEHmap(l1MEPs, fill="mel", titleExpression, limits)
+plotLEHmap(mlDT, fill="mel", titleExpression, limits)
 
-limits=quantile(l1MEPs[["Mel"]], probs=c(.005, .995), na.rm=TRUE)
+limits=quantile(mlDT[["Mel"]], probs=c(.005, .995), na.rm=TRUE)
 titleExpression <- bquote(.(unique(x[["Signal"]]))~MADs~(M["e,l"]))
-plotLEHmap(l1MEPs, fill="Mel", titleExpression, limits)
+plotLEHmap(mlDT, fill="Mel", titleExpression, limits)
