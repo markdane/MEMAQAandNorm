@@ -18,7 +18,7 @@ naiveRandRUV_MD <- function (Y, cIdx, nuCoeff = 0.001, k = nrow(Y))
   return(nY)
 }
 
-plotLEHmap <- function(dt, fill, titleExpression, limits){
+plotLEHmap <- function(dt, fill, titleExpression, limits, xAxisSize=.6, yAxisSize=.5){
   p <- ggplot(dt, aes_string(x="Ligand", y="ECMp", fill = fill))+
     geom_tile()+
     scale_fill_gradient(low="white",high="red",oob = scales::squish,
@@ -26,7 +26,7 @@ plotLEHmap <- function(dt, fill, titleExpression, limits){
     ggtitle(titleExpression)+
     xlab("")+ylab("")+
     guides(fill=FALSE)+
-    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.6)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(.5)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.7)),panel.grid.major = element_line(linetype = 'blank'),panel.background = element_rect(fill = "dimgray"))
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(xAxisSize)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(yAxisSize)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.7)),panel.grid.major = element_line(linetype = 'blank'),panel.background = element_rect(fill = "dimgray"))
   suppressWarnings(print(p))
 }
 
@@ -360,4 +360,24 @@ callSSQANorm <- function(x){
   render(paste0("Mep-LINCS_QANorm.Rmd"),
          output_file = paste0("Mep-LINCS_QANorm_",unique(x[["CellLine"]]),"_",unique(x[["Signal"]]),"_",unique(x[["Method"]]),".html"),
          output_format = "html_document") 
+}
+
+convert48ECMGAL <- function(filename, minEffect=.95, maxEffect=1.05){
+  #Read in the spot metadata from the gal file
+  spotMetadata <- readSpotMetadata(filename)
+  #Relabel the column Name to ECMpAnnotID
+  setnames(spotMetadata, "Name", "ECMpAnnotID")
+  
+  #Create a data table with the Actual-Simulated replacements
+  ECMReplace <- data.table(Actual=unique(spotMetadata$ECMpAnnotID),Simulated=unique(spotMetadata$ECMpAnnotID))
+  ECMReplace$Simulated[!grepl("Fiducial|PBS",ECMReplace$Simulated)]<-sprintf("ECMp%02d", 1:48)
+  ECMReplace$ECMpER <- c(1,ECMpER=seq(minEffect, maxEffect,length.out = 48),0)
+  
+  #replace the actual ECMp names
+  setkey(spotMetadata,ECMpAnnotID)
+  setkey(ECMReplace,Actual)
+  spotMetadata <- spotMetadata[ECMReplace]
+  spotMetadata <- spotMetadata[,ECMpAnnotID :=NULL]
+  setnames(spotMetadata,"Simulated","ECMpAnnotID")
+  return(spotMetadata)
 }
