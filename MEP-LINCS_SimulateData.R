@@ -132,17 +132,16 @@ mlDT <- addMarginValues(mlDT,"mel","Mel")
 m.. <- median(mlDT$mel, na.rm = TRUE)
 M.. <- median(mlDT$Mel, na.rm = TRUE)
 
-
 #For an array  Unit of study there are 64 'samples'of 594 spots with 8 replicates
 #Create a spot assignment that recognizes rotated B row arrays
-l3$RSpot <- l3$Spot
-l3$RSpot[grepl("B",l3$Well)] <- 701-l3$RSpot[grepl("B",l3$Well)]
+slDT$RSpot <- slDT$Spot
+slDT$RSpot[grepl("B",slDT$Well)] <- 701-slDT$RSpot[grepl("B",slDT$Well)]
 #Add in ligand and ECMp names so they will carry through the normalization
-l3$BWL <- paste(l3$Barcode,l3$Well,l3$Ligand,sep="_")
-l3$SE <- paste(l3$RSpot,l3$ECMp,sep="_")
-l3$BW <- paste(l3$Barcode,l3$Well,sep="_")
-l3$WSE <- paste(l3$Well, l3$RSpot,l3$ECMp,sep="_")
-l3$BWLSE <- paste(l3$Barcode, l3$Well, l3$Ligand, l3$RSpot,l3$ECMp,sep="_")
+slDT$BWL <- paste(slDT$Barcode,slDT$Well,slDT$Ligand,sep="_")
+slDT$SE <- paste(slDT$RSpot,slDT$ECMp,sep="_")
+slDT$BW <- paste(slDT$Barcode,slDT$Well,sep="_")
+slDT$WSE <- paste(slDT$Well, slDT$RSpot,slDT$ECMp,sep="_")
+slDT$BWLSE <- paste(slDT$Barcode, slDT$Well, slDT$Ligand, slDT$RSpot,slDT$ECMp,sep="_")
 
 #Cast to get mel values by barcode_well_ligand rows and spot columns
 #logit transform the values that are porportions in the [0,1] range
@@ -155,13 +154,12 @@ if(unique(unique(x[["Signal"]])) %in% c("EdU", "DNA2N", "Ecc")){
   fill <- log2(.001)
 } else(stop(paste("Need fill value for",unique(x[["Signal"]])," signal"))) 
 
-l3c <- dcast(l3, BWL~SE, value.var=paste0(unique(x[["Signal"]]),"mel"), fill = fill)
+slDTc <- dcast(slDT, BWL~SE, value.var=paste0(unique(x[["Signal"]]),"mel"), fill = fill)
 #Remove the BWL column and use it as rownames in the matrix
-l3m <- l3c[,grep("BWL",colnames(l3c), value=TRUE, invert=TRUE), with=FALSE]
+slDTm <- slDTc[,grep("BWL",colnames(slDTc), value=TRUE, invert=TRUE), with=FALSE]
 #Y is a numeric matrix of the raw transformed responses 
-#of each spot extracted from the l3 dataset
-YArray <- matrix(unlist(l3m), nrow=nrow(l3m), dimnames=list(l3c$BWL, colnames(l3m)))
-
+#of each spot extracted from the slDT dataset
+YArray <- matrix(unlist(slDTm), nrow=nrow(slDTm), dimnames=list(slDTc$BWL, colnames(slDTm)))
 
 #Setup data with plate as the unit
 #There are 8 'samples' with 694 controls
@@ -170,10 +168,10 @@ YArray <- matrix(unlist(l3m), nrow=nrow(l3m), dimnames=list(l3c$BWL, colnames(l3
 #Cast to get mel values with Barcode rows and well+Spot+ECMp columns
 #Use the names to hold the spot contents
 #Coerce missing values to have near 0 proliferation signals
-l3PlateC <- dcast(l3, Barcode~WSE, value.var=paste0(unique(x[["Signal"]]),"mel"),fill = fill)
+slDTPlateC <- dcast(slDT, Barcode~WSE, value.var=paste0(unique(x[["Signal"]]),"mel"),fill = fill)
 #Remove the Barcode column and use it as rownames in the matrix
-l3m <- l3PlateC[,grep("Barcode",colnames(l3PlateC), value=TRUE, invert=TRUE), with=FALSE]
-YPlate <- matrix(unlist(l3m), nrow=nrow(l3m), dimnames=list(l3PlateC$Barcode, colnames(l3m)))
+slDTm <- slDTPlateC[,grep("Barcode",colnames(slDTPlateC), value=TRUE, invert=TRUE), with=FALSE]
+YPlate <- matrix(unlist(slDTm), nrow=nrow(slDTm), dimnames=list(slDTPlateC$Barcode, colnames(slDTm)))
 
 
 limits=quantile(mlDT[["mel"]], probs=c(.005, .995), na.rm=TRUE)
