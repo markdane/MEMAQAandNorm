@@ -351,7 +351,7 @@ RZSPlate <- function(Y){
 }
 
 callQANorm <- function(x){
-  render(paste0("Mep-LINCS_QANorm.Rmd"),
+  rmarkdown::render(paste0("Mep-LINCS_QANorm.Rmd"),
          output_file = paste0("Mep-LINCS_QANorm_",x[["CellLine"]],"_",x[["Signal"]],"_",x[["Method"]],".html"),
          output_format = "html_document") 
 }

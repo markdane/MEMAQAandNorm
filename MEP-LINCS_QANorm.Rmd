@@ -42,9 +42,7 @@ if(unique(x[["Unit"]])=="StainingSet"){
 l1$MEP <- paste(l1$ECMp,l1$Ligand,sep="_")
 
 #Delete the fiducial and blank spots
-setkey(l1, "ECMp")
-l1 <- l1[!"fiducial"]
-l1 <- l1[!"blank"]
+l1 <- l1[!grepl("fiducial|Fiducial|blank|PBS",l1$ECMp)]
 
 #Logit transform DNA2NProportion
 #logit(p) = log[p/(1-p)]
@@ -66,7 +64,7 @@ l1$Nuclei_PA_AreaShape_EccentricityLogit <- log2(EccImpute/(1-EccImpute))
 l3 <- l1[,list(Ligand=unique(Ligand), LigandAnnotID=unique(LigandAnnotID),
                ECMp=unique(ECMp), ECMpAnnotID=unique(ECMpAnnotID),
                MEP=unique(MEP),
-               StainingSet=unique(StainingSet),
+               #StainingSet=unique(StainingSet), #remove after Staining Set is in l1
                Row=unique(Row), Column = unique(Column), Block=unique(Block), ID=unique(ID),
                ArrayRow=unique(ArrayRow), ArrayColumn=unique(ArrayColumn),
                DNA2Nmel = median(Nuclei_PA_Cycle_DNA2NProportionLogit, na.rm=TRUE),
@@ -74,6 +72,8 @@ l3 <- l1[,list(Ligand=unique(Ligand), LigandAnnotID=unique(LigandAnnotID),
                Eccmel = median(Nuclei_PA_AreaShape_EccentricityLogit)
 ),
 by="Barcode,Well,Spot"]
+l3 <- l3[, SCCRel := calcResidual(SCCmel), by="MEP"]
+l3 <- l3[, EccRel := calcResidual(Eccmel), by="MEP"]
 
 if(!any(!x[["StainingSet"]] == "SS2")){
   l3$EdUmel <- l1[,list(EdUmel = median(Nuclei_PA_Gated_EduPositiveLogit, na.rm=TRUE)),by=.(Barcode,Well,Spot)][,EdUmel]
@@ -109,6 +109,7 @@ l3$SE <- paste(l3$RSpot,l3$ECMp,sep="_")
 l3$BW <- paste(l3$Barcode,l3$Well,sep="_")
 l3$WSE <- paste(l3$Well, l3$RSpot,l3$ECMp,sep="_")
 l3$BWLSE <- paste(l3$Barcode, l3$Well, l3$Ligand, l3$RSpot,l3$ECMp,sep="_")
+l3$StainingSet <- x[["StainingSet"]]
 
 #Cast to get mel values by barcode_well_ligand rows and spot columns
 #logit transform the values that are porportions in the [0,1] range
@@ -128,7 +129,15 @@ l3m <- l3c[,grep("BWL",colnames(l3c), value=TRUE, invert=TRUE), with=FALSE]
 #of each spot extracted from the l3 dataset
 YArray <- matrix(unlist(l3m), nrow=nrow(l3m), dimnames=list(l3c$BWL, colnames(l3m)))
 
-
+if(x[["Unit"]]=="ArrayWithResiduals"){
+  l3c <- dcast(l3, BWL~SE, value.var=paste0(unique(x[["Signal"]]),"Rel"), fill = fill)
+  #Remove the BWL column and use it as rownames in the matrix
+  l3m <- l3c[,grep("BWL",colnames(l3c), value=TRUE, invert=TRUE), with=FALSE]
+  #Y is a numeric matrix of the raw transformed responses 
+  #of each spot extracted from the l3 dataset
+  YArrayResiduals <- matrix(unlist(l3m), nrow=nrow(l3m), dimnames=list(l3c$BWL, colnames(l3m)))
+  YArrayVR <-cbind(YArray,YArrayResiduals)
+}
 #Setup data with plate as the unit
 #There are 8 'samples' with 694 controls
 #Order the spot level data by plate, well, spot number
@@ -152,7 +161,7 @@ Yss <- matrix(unlist(l3m), nrow=nrow(l3m), dimnames=list(l3ssC$StainingSet, coln
 ```
 
 ---
-title: "MEP-LINCS `r x[["CellLine"]]` `r x[["StainingSet"]]` `r unique(x[["Signal"]])` `r unique(x[["Method"]])` Normalization"
+title: "MEP-LINCS `r x[["CellLine"]]`  `r x[["StainingSet"]]`  `r unique(x[["Signal"]])` `r unique(x[["Method"]])`  `r unique(x[["Unit"]])` Normalization"
 date: "`r Sys.Date()`"
 ---
 
@@ -167,14 +176,17 @@ limits=quantile(l1MEPs[["Mel"]], probs=c(.005, .995), na.rm=TRUE)
 titleExpression <- bquote(.(unique(x[["Signal"]]))~MADs~(M["e,l"]))
 plotLEHmap(l1MEPs, fill="Mel", titleExpression, limits)
 
-
 ```
 
 
 ```{r, child='NaiveRandRUVText.Rmd', eval=unique(x[["Method"]])=="NaiveRandRUV"}
 ```
 
-```{r, child='NaiveReplicateRUVText.Rmd', eval=unique(x[["Method"]])=="NaiveReplicateRUV"}
+
+```{r, child='NaiveReplicateRUVVRText.Rmd', eval=unique(x[["Method"]])=="NaiveReplicateRUV" & unique(x[["Unit"]])=="ArrayWithResiduals"}
+```
+
+```{r, child='NaiveReplicateRUVText.Rmd', eval=unique(x[["Method"]])=="NaiveReplicateRUV" & unique(x[["Unit"]])=="Array"}
 ```
 
 
@@ -208,7 +220,7 @@ nY <- addMarginValues(dt=nY, mValue="mel",MValue="Mel")
 
 ```
 
-```{r, eval=unique(x[["Method"]])=="NaiveReplicateRUV"}
+```{r, eval=unique(x[["Method"]])=="NaiveReplicateRUV" & unique(x[["Unit"]])=="Array"}
 
 #Set up replicate index matrix with A03 wells as replicates
 replicateWells <- which(grepl("A03",rownames(YArray)))
@@ -244,6 +256,46 @@ nY <- rbindlist(nYkList)
 
 ```
 
+
+```{r, eval=unique(x[["Method"]])=="NaiveReplicateRUV" & unique(x[["Unit"]])=="ArrayWithResiduals"}
+
+#Set up replicate index matrix with A03 wells as replicates
+replicateWells <- which(grepl("A03",rownames(YArrayVR)))
+scIdx <- matrix(-1, 57, 8)
+c <- 1
+scIdx[1,] <- replicateWells
+
+for (r in 1:nrow(YArrayVR)){
+  if(r %in% replicateWells)
+    next
+  c <- c+1
+  scIdx[c,1] <- r
+}
+
+#Hardcode in identification of residuals as the controls
+resStart <- ncol(YArrayVR)/2+1
+cIdx=resStart:ncol(YArrayVR)
+
+
+nYkList <- lapply(1:7, function(k, Y, cIdx, scIdx, mValue, MValue){
+  #Normalize the spot level data then median summarize
+  nYm <- medianNaiveReplicateRUV2(k, Y, cIdx, scIdx)
+  setnames(nYm, "Value", "mel")
+  #Normalize the spot level data then MAD summarize
+  nYM <- madNaiveReplicateRUV2(k, Y, cIdx, scIdx)
+  setnames(nYM, "Value", "Mel")
+  setkey(nYm,Barcode,MEP,ECMp,Ligand)
+  setkey(nYM, Barcode,MEP,ECMp,Ligand)
+  nY <- merge(nYm, nYM)
+  #Add margin values
+  nY <- addMarginValues(dt=nY, mValue="mel",MValue="Mel")
+  nY$k <- k
+  return(nY)
+}, Y=YArrayVR, cIdx=cIdx, scIdx=scIdx, mValue="mel", MValue="Mel")
+
+nY <- rbindlist(nYkList)
+
+```
 
 ```{r, eval=unique(x[["Method"]])=="NaiveReplicateRUVSS"}
 medianNaiveReplicateRUV2SS <- function(k, Y, cIdx, scIdx){
@@ -294,8 +346,8 @@ nYkList <- lapply(1:2, function(k, Y, cIdx, scIdx, mValue, MValue){
   setnames(nYm, "Value", "mel")
   #Normalize the spot level data then MAD summarize
   #Debug fails here, may be due to Y being a data.table
-   nYM <- madNaiveReplicateRUV2SS(k, Y, cIdx, scIdx)
-   setnames(nYM, "Value", "Mel")
+  nYM <- madNaiveReplicateRUV2SS(k, Y, cIdx, scIdx)
+  setnames(nYM, "Value", "Mel")
   setkey(nYm, StainingSet,Barcode,MEP,ECMp,Ligand)
   setkey(nYM, StainingSet,Barcode,MEP,ECMp,Ligand)
   nY <- merge(nYm, nYM)
