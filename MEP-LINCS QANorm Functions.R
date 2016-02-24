@@ -32,7 +32,11 @@ plotLEHmap <- function(dt, fill, titleExpression, limits, xAxisSize=.6, yAxisSiz
 
 
 medianNaiveRUV2 <- function(nu, Y, cIdx, k){
-  nY <- naiveRandRUV(Y, cIdx, nu, k)
+  if(k==0){
+    nY <- Y
+  } else{
+    nY <- naiveRandRUV(Y, cIdx, nu, k)
+  }
   #Median summarize the normalized values
   #melt matrix to have ECMp and Ligand columns
   nYm <- melt(nY, varnames=c("BWL","SE"))
@@ -50,7 +54,11 @@ medianNaiveRUV2 <- function(nu, Y, cIdx, k){
 }
 
 madNaiveRUV2 <- function(nu, Y, cIdx, k){
-  nY <- naiveRandRUV(Y, cIdx, nu, k)
+  if(k==0){
+    nY <- Y
+  } else{
+    nY <- naiveRandRUV(Y, cIdx, nu, k)
+  }
   #MAD summarize the normalized values
   #melt matrix to have ECMp and Ligand columns
   nYm <- melt(nY, varnames=c("BWL","SE"))
@@ -68,44 +76,63 @@ madNaiveRUV2 <- function(nu, Y, cIdx, k){
 }
 
 medianNaiveReplicateRUV2 <- function(k, Y, cIdx, scIdx){
-  nY <- naiveReplicateRUV(Y, cIdx, scIdx, k)$cY
+  if(k==0){
+    nY <- Y
+  } else{
+    nY <- naiveReplicateRUV(Y, cIdx, scIdx, k)$cY
+  }
+  #Remove the residuals if present, assuming they were bind(ed) as the last rows
+  nY <- nY[,1:length(unique(colnames(nY)))]
   #Median summarize the normalized values
   #melt matrix to have ECMp and Ligand columns
   nYm <- melt(nY, varnames=c("BWL","SE"))
   #Recreate a MEP column
+  splits <- limma::strsplit2(nYm$BWL,split = "_")
+  nYm$Barcode <- splits[,1]
+  nYm$Well <- splits[,2]
+  nYm$Ligand <- splits[,3]
   nYm$ECMp <- sub("([[:alnum:]]*_){1}","",nYm$SE)
-  nYm$Ligand <- sub("([[:alnum:]]*_){2}","",nYm$BWL)
   nYm$MEP <- paste(nYm$ECMp,nYm$Ligand, sep="_")
-  nYm$Barcode <- strsplit2(nYm$BWL,split="_")[,1]
   #Median summarize by MEP
   nYm <- data.table(nYm)
   nYm <- nYm[, BWL := NULL]
   nYm <- nYm[, SE := NULL]
-  nYm <- nYm[,list(Value = median(value)), by="Barcode,MEP,ECMp,Ligand"]
+  nYm <- nYm[,list(Value = median(value)), by="Barcode,MEP,ECMp,Ligand,Well"]
   return(nYm)
 }
 
 madNaiveReplicateRUV2 <- function(k, Y, cIdx, scIdx){
-  nY <- naiveReplicateRUV(Y, cIdx, scIdx, k)$cY
+  if(k==0){
+    nY <- Y
+  } else{
+    nY <- naiveReplicateRUV(Y, cIdx, scIdx, k)$cY
+  }
+  #Remove the residuals if present, assuming they were bind(ed) as the last rows
+  nY <- nY[,1:length(unique(colnames(nY)))]
   #MAD summarize the normalized values
   #melt matrix to have ECMp and Ligand columns
   nYm <- melt(nY, varnames=c("BWL","SE"))
   #Recreate a MEP column
+  splits <- limma::strsplit2(nYm$BWL,split = "_")
+  nYm$Barcode <- splits[,1]
+  nYm$Well <- splits[,2]
+  nYm$Ligand <- splits[,3]
   nYm$ECMp <- sub("([[:alnum:]]*_){1}","",nYm$SE)
-  nYm$Ligand <- sub("([[:alnum:]]*_){2}","",nYm$BWL)
   nYm$MEP <- paste(nYm$ECMp,nYm$Ligand, sep="_")
-  nYm$Barcode <- strsplit2(nYm$BWL,split="_")[,1]
   #Median summarize by MEP
   nYm <- data.table(nYm)
   nYm <- nYm[, BWL := NULL]
   nYm <- nYm[, SE := NULL]
-  nYM <- nYm[,list(Value = mad(value)), by="Barcode,MEP,ECMp,Ligand"]
+  nYM <- nYm[,list(Value = mad(value)), by="Barcode,MEP,ECMp,Ligand,Well"]
   return(nYM)
 }
 
 medianRUVIIIPlate <- function(k, Y, M, cIdx){
-  #browser()
-  nY <- RUVIII(Y, M, cIdx, k)["newY"]
+  if(k==0){
+    nY <- Y
+  } else{
+    nY <- RUVIII(Y, M, cIdx, k)[["newY"]]
+  } 
   #melt matrix to have ECMp and Ligand columns
   nYm <- melt(nY, varnames=c("Barcode","WSE"))
   #Extract ECMp and Well values into separate columns
@@ -120,8 +147,11 @@ medianRUVIIIPlate <- function(k, Y, M, cIdx){
 }
 
 madRUVIIIPlate <- function(k, Y, M, cIdx){
-  #browser()
-  nY <- RUVIII(Y, M, cIdx, k)["newY"]
+  if(k==0){
+    nY <- Y
+  } else{
+    nY <- RUVIII(Y, M, cIdx, k)[["newY"]]
+  }
   #melt matrix to have ECMp and Ligand columns
   nYm <- melt(nY, varnames=c("Barcode","WSE"))
   #Extract ECMp and Well values into separate columns
@@ -132,6 +162,70 @@ madRUVIIIPlate <- function(k, Y, M, cIdx){
   nYm <- data.table(nYm)
   nYm <- nYm[, WSE := NULL]
   nYM <- nYm[,list(Value = mad(value)), by="Barcode,Well,ECMp"]
+  return(nYM)
+}
+
+medianRUVIIIArrayWithResiduals <- function(k, Y, M, cIdx){
+  nY <- RUVIII(Y, M, cIdx, k)[["newY"]]
+  #Remove residuals
+  nY <- nY[,1:(ncol(nY)/2)]
+  #melt matrix to have ECMp and Ligand columns
+  nYm <- melt(nY, varnames=c("BWL","SE"))
+  splits <- limma::strsplit2(nYm$BWL,split = "_")
+  nYm$Barcode <- splits[,1]
+  nYm$Well <- splits[,2]
+  nYm$Ligand <- splits[,3]
+  nYm$ECMp <- sub("([[:alnum:]]*_){1}","",nYm$SE)
+  nYm$MEP <- paste(nYm$ECMp,nYm$Ligand, sep="_")
+  
+  #Median summarize by MEP
+  nYm <- data.table(nYm)
+  nYm <- nYm[, BWL := NULL]
+  nYm <- nYm[, SE := NULL]
+  nYm <- nYm[,list(Value = median(Value)), by="Barcode,Well,ECMp,Ligand,MEP"]
+  return(nYm)
+}
+
+#' Apply RUV3 normalization on a signal and its residuals
+#' 
+#' Assumes there are signal values in the first half of each row
+#' and residuals in the second half
+#' @export
+RUVIIIArrayWithResiduals <- function(k, Y, M, cIdx){
+  nY <- RUVIII(Y, M, cIdx, k)[["newY"]]
+  #Remove residuals
+  nY <- nY[,1:(ncol(nY)/2)]
+  #melt matrix to have ECMp and Ligand columns
+  nYm <- melt(nY, varnames=c("BWL","SE"))
+  if(any(grepl("value",colnames(nYm)))) setnames(nYm, "value", "Value")
+  splits <- limma::strsplit2(nYm$BWL,split = "_")
+  nYm$Barcode <- splits[,1]
+  nYm$Well <- splits[,2]
+  nYm$Ligand <- splits[,3]
+  nYm$ECMp <- sub("([[:alnum:]]*_){1}","",nYm$SE)
+  nYm$Spot <- as.integer(sub("(_[[:alnum:]]*){1}","",nYm$SE))
+  nYm$MEP <- paste(nYm$ECMp,nYm$Ligand, sep="_")
+  return(nYm)
+}
+
+madRUVIIIArrayWithResiduals <- function(k, Y, M, cIdx){
+  nY <- RUVIII(Y, M, cIdx, k)[["newY"]]
+  #Remove residuals
+  nY <- nY[,1:(ncol(nY)/2)]
+  #melt matrix to have ECMp and Ligand columns
+  nYm <- melt(nY, varnames=c("BWL","SE"))
+  splits <- limma::strsplit2(nYm$BWL,split = "_")
+  nYm$Barcode <- splits[,1]
+  nYm$Well <- splits[,2]
+  nYm$Ligand <- splits[,3]
+  nYm$ECMp <- sub("([[:alnum:]]*_){1}","",nYm$SE)
+  nYm$MEP <- paste(nYm$ECMp,nYm$Ligand, sep="_")
+  
+  #MAD summarize by MEP
+  nYm <- data.table(nYm)
+  nYm <- nYm[, BWL := NULL]
+  nYm <- nYm[, SE := NULL]
+  nYM <- nYm[,list(Value = mad(Value)), by="Barcode,Well,ECMp,Ligand,MEP"]
   return(nYM)
 }
 
@@ -216,8 +310,7 @@ plotCenteredBoxes <- function(dt, value, groupBy, colourBy=NULL, titleExpression
 
 RUVIII = function(Y, M, ctl, k=NULL, eta=NULL, average=FALSE, fullalpha=NULL)
 {
-  #browser()
-  Y = RUV1(Y,eta,ctl)
+  Y = ruv::RUV1(Y,eta,ctl)
   if (is.null(k))
   {
     ycyctinv = solve(Y[,ctl]%*%t(Y[,ctl]))
@@ -228,7 +321,7 @@ RUVIII = function(Y, M, ctl, k=NULL, eta=NULL, average=FALSE, fullalpha=NULL)
   else
   {
     m = nrow(Y)
-    Y0 = residop(Y,M)
+    Y0 = ruv::residop(Y,M)
     fullalpha = t(svd(Y0%*%t(Y0))$u[,1:(m-ncol(M)),drop=FALSE])%*%Y
     alpha = fullalpha[1:k,,drop=FALSE]
     ac = alpha[,ctl,drop=FALSE]
@@ -240,8 +333,11 @@ RUVIII = function(Y, M, ctl, k=NULL, eta=NULL, average=FALSE, fullalpha=NULL)
 }
 
 medianNaiveRUV2Plate <- function(nu, Y, cIdx, k){
-  #browser()
-  nY <- naiveRandRUV(Y, cIdx, nu, k)
+  if(k==0){
+    nY <- Y
+  } else{
+    nY <- naiveRandRUV(Y, cIdx, nu, k)
+  }
   #melt matrix to have ECMp and Ligand columns
   nYm <- melt(nY, varnames=c("Barcode","WSE"))
   #Extract ECMp and Well values into separate columns
@@ -256,8 +352,11 @@ medianNaiveRUV2Plate <- function(nu, Y, cIdx, k){
 }
 
 madNaiveRUV2Plate <- function(nu, Y, cIdx, k){
-  #browser()
-  nY <- naiveRandRUV(Y, cIdx, nu, k)
+  if(k==0){
+    nY <- Y
+  } else{
+    nY <- naiveRandRUV(Y, cIdx, nu, k)
+  }
   #melt matrix to have ECMp and Ligand columns
   nYm <- melt(nY, varnames=c("Barcode","WSE"))
   #Extract ECMp and Well values into separate columns
@@ -278,8 +377,11 @@ calcResidual <- function(x){
 }
 
 naiveRUV2Plate <- function(k, nu, Y, cIdx){
-  #browser()
-  nY <- naiveRandRUV_MD(Y, cIdx, nu, k)
+  if(k==0){
+    nY <- Y
+  } else{
+    nY <- naiveRandRUV_MD(Y, cIdx, nu, k)
+  }
   #melt matrix to have ECMp and Ligand columns
   nYm <- melt(nY, varnames=c("Barcode","WSE"))
   #Extract ECMp and Well values into separate columns
@@ -296,7 +398,11 @@ naiveRUV2Plate <- function(k, nu, Y, cIdx){
 }
 
 naiveReplicateRUV2Plate <- function(k, Y, cIdx, scIdx){
-  nY <- naiveReplicateRUV(Y, cIdx, scIdx, k)$cY
+  if(k==0){
+    nY <- Y
+  } else{
+    nY <- naiveReplicateRUV(Y, cIdx, scIdx, k)$cY
+  }
   #Median summarize the normalized values
   #melt matrix to have ECMp and Ligand columns
   nYm <- melt(nY, varnames=c("BWL","SE"))
@@ -315,8 +421,11 @@ naiveReplicateRUV2Plate <- function(k, Y, cIdx, scIdx){
 }
 
 RUVIIIPlate <- function(k, Y, M, cIdx){
-  #browser()
-  nY <- RUVIII(Y, M, cIdx, k)["newY"]
+  if(k==0){
+    nY <- Y
+  } else{
+    nY <- RUVIII(Y, M, cIdx, k)["newY"]
+  }
   #melt matrix to have ECMp and Ligand columns
   nYm <- melt(nY, varnames=c("Barcode","WSE"), as.is=TRUE)
   #Extract ECMp and Well values into separate columns
@@ -352,8 +461,8 @@ RZSPlate <- function(Y){
 
 callQANorm <- function(x){
   rmarkdown::render(paste0("Mep-LINCS_QANorm.Rmd"),
-         output_file = paste0("Mep-LINCS_QANorm_",x[["CellLine"]],"_",x[["Signal"]],"_",x[["Method"]],".html"),
-         output_format = "html_document") 
+                    output_file = paste0("Mep-LINCS_QANorm_",x[["CellLine"]],"_",x[["StainingSet"]],"_",x[["Signal"]],"_",x[["Method"]],x[["Unit"]],".html"),
+                    output_format = "html_document") 
 }
 
 callSSQANorm <- function(x){
@@ -381,3 +490,61 @@ convert48ECMGAL <- function(filename, minEffect=.95, maxEffect=1.05){
   setnames(spotMetadata,"Simulated","ECMpAnnotID")
   return(spotMetadata)
 }
+
+medianNaiveReplicateRUV2SS <- function(k, Y, cIdx, scIdx){
+  if(k==0){
+    nY <- Y
+  } else{
+    nY <- naiveReplicateRUV(Y, cIdx, scIdx, k)$cY
+  }
+  #Median summarize the normalized values
+  #melt matrix to have ECMp and Ligand columns
+  nYm <- melt(nY, varnames=c("StainingSet","BWLSE"))
+  #Recreate a MEP column
+  splits <- strsplit2(nYm$BWLSE,split="_")
+  #This fails because sometimes there is an _ in the ligand name
+  nYm$ECMp <- splits[,5]
+  nYm$Barcode <- splits[,1]
+  nYm$Ligand <- splits[,3]
+  nYm$Well <- splits[,2]
+  nYm$MEP <- paste(nYm$ECMp,nYm$Ligand, sep="_")
+  #Median summarize by MEP
+  nYm <- data.table(nYm)
+  nYm <- nYm[, BWLSE := NULL]
+  nYm <- nYm[,list(Value = median(value)), by="StainingSet,Barcode,MEP,ECMp,Ligand,Well"]
+  return(nYm)
+}
+
+madNaiveReplicateRUV2SS <- function(k, Y, cIdx, scIdx){
+  if(k==0){
+    nY <- Y
+  } else{
+    nY <- naiveReplicateRUV(Y, cIdx, scIdx, k)$cY
+  }
+  #MAD summarize the normalized values
+  #melt matrix to have ECMp and Ligand columns
+  nYm <- melt(nY, varnames=c("StainingSet","BWLSE"))
+  #Recreate a MEP column
+  splits <- strsplit2(nYm$BWLSE,split="_")
+  nYm$ECMp <- splits[,5]
+  nYm$Barcode <- splits[,1]
+  nYm$Ligand <- splits[,3]
+  nYm$Well <- splits[,2]
+  nYm$MEP <- paste(nYm$ECMp,nYm$Ligand, sep="_")
+  #MAD summarize by MEP
+  nYm <- data.table(nYm)
+  nYm <- nYm[, BWLSE := NULL]
+  nYm <- nYm[,list(Value = mad(value)), by="StainingSet,Barcode,MEP,ECMp,Ligand,Well"]
+  return(nYm)
+}
+
+#Scratch code for PCA evaluation 
+# #Create the rectangular matrix with array rows and spot columns
+# dtc <- dcast(dt, BWL~SE, value.var = "Value")
+# rowNames <-dtc[,BWL]
+# dtc <- dtc[,BWL := NULL]
+# dtcm <- as.matrix(dtc)
+# row.names(dtcm) <- rowNames
+# #Perform SVD on the values
+# dtSVD <- svd(dtcm)
+#Plot 1st and 2nd eigenvectors of values and residuals
