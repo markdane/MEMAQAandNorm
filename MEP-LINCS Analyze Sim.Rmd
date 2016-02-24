@@ -1,0 +1,359 @@
+---
+output: html_document
+---
+
+---
+title: "MEP-LINCS Simulated Dataset Analysis"
+date: "`r Sys.Date()`"
+---
+
+```{r global_options_Setup, include=FALSE}
+#Author: Mark Dane, copyright 2015
+knitr::opts_chunk$set(fig.width=12, fig.height=8, message=FALSE, echo=FALSE)
+
+# Simulate MEMA data to evaluate normalizations and hit selection
+#1/2016 Mark Dane
+
+#Start with a simple approach with ECMp and Ligand effect rates
+#and random noise
+#Maintain the 8 well, 8 plate 700 spt MEMA structure of the LINCS experiments
+
+library("limma")#read GAL file and strsplit2
+library("MEMA")#merge, annotate and normalize functions
+library(parallel)
+library(RUVnormalize)
+library(ruv)
+library(ggplot2)
+library(plotly)
+library("ggplot2")
+library("reshape2")
+library("grid")
+library("knitr")
+library("gplots")
+library("RColorBrewer")
+library("data.table")#fast file reads, data merges and subsetting
+
+
+source("~/Documents/MEP-LINCS/MEPLINCSFunctions.R")
+source("~/Documents/MEMAQAandNorm/MEP-LINCS QANorm Functions.R")
+
+
+#Use the phase 2 GAL file to set the layout
+# Read and clean spotmetadata
+ECMminEffect=.95
+ECMmaxEffect=1.05
+ECMCtrlEffect=.8
+SCCSeed <- 80
+
+LigandMinEffect=.8
+LigandMaxEffect=1.2
+
+noiseMin <- -5
+noiseMax <- 5
+```
+
+The Spot Cell Count (SCC) is "seeded" at `r SCCSeed` cells per spot.  
+The 48 ECM proteins are simulated to have unique SCC effect factors $α_{e}$ between `r ECMminEffect` and `r ECMmaxEffect` for e between 01 and 48.  ECMp10 is simulated as a positive control with an effect factor $α_{10}$ of `r ECMCtrlEffect`.  
+The ligands are simulated to have unique SCC effect factors $β_{l}$ between `r LigandMinEffect` and `r LigandMaxEffect` for l between 01 and 64.  The ligands are sequentially assigned to the plates but their 
+$β_{l}$ values were randomly sampled. All A03 wells are then set equal to the first plate's A03 $β$ value.  
+$ε_{i, j}$ represents random noise between `r noiseMin` and `r noiseMax`.
+
+The SCC is calculated for each spot according to: $$SCC_{i,j} = SCCSeed * α_{e} * β_{l} + ε_{i, j}$$
+where i and j represent the row and column labels, respectively. i runs from 1 to 35 and j from 1 to 20. $SCC_{i,j}$ denotes the value of a single measurement.
+
+```{r}
+spotMetadata <- convert48ECMGAL("~/Documents/MEP-LINCS/GALFiles/20160120_LI8X001_2.gal",ECMminEffect, ECMmaxEffect)
+spotMetadata$ECMpER[spotMetadata$ECMpAnnotID=="ECMp10"] <- ECMCtrlEffect
+#Make a rotated version of the spot metadata to match the print orientation
+setkey(spotMetadata,Spot)
+spotMetadata180 <- rotateMetadata(spotMetadata)
+```
+
+```{r}
+
+#Create the well metadata
+wmd <-data.table(Barcode=rep(paste0("LI8S","0000",1:8), each=8*700),
+                 Well=rep(wellAN(2,4), each=700),
+                 CellLine="SimCell",
+                 LigandAnnotID=rep(sprintf("Ligand%02d", 1:64), each=700),
+                 LigandER=rep(sample(seq(LigandMinEffect,LigandMaxEffect,length.out = 64),64,replace = FALSE), each=700))
+#Set common control well values
+wmd$LigandER[wmd$Well=="A03"] <- wmd$LigandER[wmd$LigandAnnotID=="Ligand03"]
+
+setkey(wmd,Barcode,Well)
+#Create A row and B row array metadata 
+AWells <- cbind(spotMetadata,wmd)
+BWells <- cbind(spotMetadata180,wmd)
+#Merge the correct metadata based on the row
+l3 <-rbind(AWells[grepl("A",AWells$Well)],
+            BWells[grepl("B",BWells$Well)])
+
+#Create short display names
+l3$ECMp <- gsub("_.*","",l3$ECMpAnnotID)
+l3$Ligand <- gsub("_.*","",l3$LigandAnnotID)
+l3$MEP <- paste(l3$ECMp,l3$Ligand,sep = "_")
+
+#Delete the blank spots
+l3 <- l3[!grep("PBS|Fiducial",l3$ECMp)]
+#Add a convenience label for wells and ligands
+l3$WL <- paste(l3$Well,l3$Ligand,sep = "_")
+
+#Calculate the spot cell count based on the ECMp and Ligand effect rates
+
+set.seed(1234)
+SCCNoise <-sample(noiseMin:noiseMax,size=nrow(l3),replace=TRUE)
+l3$Spot_PA_SpotCellCount <- as.integer(SCCSeed*l3$ECMpER*l3$LigandER+SCCNoise)
+
+metadataNames <- "ObjectNumber|^Row$|^Column$|Block|^ID$|PrintOrder|Depositions|CellLine|Endpoint|WellIndex|Center|Array|ECMp|Ligand|MEP|Well_Ligand|ImageID|Sparse|Wedge|OuterCell|Spot_PA_Perimeter|Nuclei_PA_Cycle_State|_SE|ReplicateCount|LoessSCC|QAScore|^WL$"
+
+#Save the un-normalized parameters to merge in later
+mdDT <- l3[,grep(paste0(metadataNames,"|Barcode|^Well$|^Spot$"),colnames(l3),value=TRUE), with = FALSE]
+#Identify parameters to be normalized
+normParameters <- grep(metadataNames,colnames(l3),value=TRUE,invert=TRUE)
+
+#Apply RUV-3 normalization to each feature
+k=2
+nDT <- normRUV3Dataset(l3[,normParameters, with = FALSE], k)
+
+nDT$NormMethod <- "RUV3"
+#Merge the normalized data with its metadata
+setkey(nDT,Barcode,Well,Spot)
+setkey(mdDT,Barcode,Well,Spot)
+nmdDT <- merge(nDT,mdDT)
+
+#merge spot level normalized and raw data
+setkey(l3, Barcode, Well, Spot)
+slDT <- merge(l3[,normParameters, with = FALSE], nmdDT)
+```
+
+<br>  
+
+
+####Pseudoimages and Histograms
+
+The layout of the ECM proteins is randomized and based on the MEP-LINCS phase 2 layout. There are an average of `r sprintf("%.1f",mean(table(l3[l3$Ligand=="Ligand01"]$ECMpAnnotID)))` replicate ECM protein spots in each MEMA. The following plots show the spatial and frequency counts of the eight simulated plates. 
+
+
+```{r, fig.width=4, fig.height=4}
+for(barcode in  unique(slDT$Barcode)){
+  setkey(slDT,Barcode)
+  DT <- slDT[barcode]
+  p <- create8WellPseudoImage(DT,pr = "Spot_PA_SpotCellCount",prDisplay = "SCC")
+  print(p)
+  
+  p <- create8WellHistograms(DT,pr = "Spot_PA_SpotCellCount",prDisplay = "SCC")
+  suppressWarnings(print(p))
+}
+
+
+DT <- l3[l3$Ligand=="Ligand01"]
+p <- ggplot(DT, aes(x=ECMpAnnotID))+
+  geom_bar(width=.8)+geom_hline(yintercept = mean(table(DT$ECMpAnnotID)), colour="blue")+
+  ggtitle(" \n\nCount of Replicate ECM Proteins In Each MEMA")+
+  xlab("Printed ECM Protein")+ylab("Number of spots")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.8)),axis.title.x = element_text(size=rel(.8)),axis.title.y = element_text(size=rel(.8)),plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.5)))
+
+  suppressWarnings(print(p))
+
+```
+
+
+```{r}
+  
+x<-data.frame(Signal="SCC",Method="RUV3")
+slDT$SCCmel <- log2(slDT$Spot_PA_SpotCellCount)
+
+mlDT <- slDT[,list(mel = median(eval(parse(text=paste0(unique(unique(x[["Signal"]])),"mel")))),
+                   Mel = mad(eval(parse(text=paste0(unique(x[["Signal"]]),"mel"))))),
+             by="Barcode,Well,Ligand,ECMp,MEP"]
+#mlDT is the data.table of the MEP level, raw, transformed SCC responses
+mlDT <- addMarginValues(mlDT,"mel","Mel")
+
+#calculate the overall median and MAD for the staining set
+m.. <- median(mlDT$mel, na.rm = TRUE)
+M.. <- median(mlDT$Mel, na.rm = TRUE)
+
+#For an array  Unit of study there are 64 'samples'of 594 spots with 8 replicates
+#Create a spot assignment that recognizes rotated B row arrays
+slDT$RSpot <- slDT$Spot
+slDT$RSpot[grepl("B",slDT$Well)] <- 701-slDT$RSpot[grepl("B",slDT$Well)]
+#Add in ligand and ECMp names so they will carry through the normalization
+slDT$BWL <- paste(slDT$Barcode,slDT$Well,slDT$Ligand,sep="_")
+slDT$SE <- paste(slDT$RSpot,slDT$ECMp,sep="_")
+slDT$BW <- paste(slDT$Barcode,slDT$Well,sep="_")
+slDT$WSE <- paste(slDT$Well, slDT$RSpot,slDT$ECMp,sep="_")
+slDT$BWLSE <- paste(slDT$Barcode, slDT$Well, slDT$Ligand, slDT$RSpot,slDT$ECMp,sep="_")
+
+#Cast to get mel values by barcode_well_ligand rows and spot columns
+#logit transform the values that are porportions in the [0,1] range
+#Coerce missing values to have near 0 values before transformation
+if(unique(unique(x[["Signal"]])) %in% c("EdU", "DNA2N", "Ecc")){
+  fill <- log2(.01/(1-.01))
+} else if(unique(x[["Signal"]]) %in% c("SCC")){
+  fill <- 1
+} else if(unique(x[["Signal"]]) %in% c("LineageRatioLog2")){
+  fill <- log2(.001)
+} else(stop(paste("Need fill value for",unique(x[["Signal"]])," signal"))) 
+
+slDTc <- dcast(slDT, BWL~SE, value.var=paste0(unique(x[["Signal"]]),"mel"), fill = fill)
+#Remove the BWL column and use it as rownames in the matrix
+slDTm <- slDTc[,grep("BWL",colnames(slDTc), value=TRUE, invert=TRUE), with=FALSE]
+#Y is a numeric matrix of the raw transformed responses 
+#of each spot extracted from the slDT dataset
+YArray <- matrix(unlist(slDTm), nrow=nrow(slDTm), dimnames=list(slDTc$BWL, colnames(slDTm)))
+
+#Setup data with plate as the unit
+#There are 8 'samples' with 694 controls
+#Order the spot level data by plate, well, spot number
+
+#Cast to get mel values with Barcode rows and well+Spot+ECMp columns
+#Use the names to hold the spot contents
+#Coerce missing values to have near 0 proliferation signals
+slDTPlateC <- dcast(slDT, Barcode~WSE, value.var=paste0(unique(x[["Signal"]]),"mel"),fill = fill)
+#Remove the Barcode column and use it as rownames in the matrix
+slDTm <- slDTPlateC[,grep("Barcode",colnames(slDTPlateC), value=TRUE, invert=TRUE), with=FALSE]
+YPlate <- matrix(unlist(slDTm), nrow=nrow(slDTm), dimnames=list(slDTPlateC$Barcode, colnames(slDTm)))
+```
+
+<br>  
+
+####Median and MAD Heatmaps
+The spot level SCC replicates are summarized in the following median and MAD heatmaps. The ECM proteins and ligands are displayed alphabetically.  
+
+```{r, fig.width=4.5, fig.height=4}
+
+limits=quantile(mlDT[["mel"]], probs=c(.005, .995), na.rm=TRUE)
+titleExpression <- bquote(SCC~Medians~(m["e,l"]))
+plotLEHmap(mlDT, fill="mel", titleExpression, limits, xAxisSize=.6, yAxisSize=.6)
+
+limits=quantile(mlDT[["Mel"]], probs=c(.005, .995), na.rm=TRUE)
+titleExpression <- bquote(SCC~MADs~(M["e,l"]))
+plotLEHmap(mlDT, fill="Mel", titleExpression, limits, xAxisSize=.6, yAxisSize=.6)
+
+```
+
+####RUV3 Normalization
+The 8 plate dataset is normalized using the RUV3 method with the plate as the unit of study, all spots in the A03 wells are designated as controls and all plates are designated as 'replicates'.  k=0 corresponds to the unnormalized SCC values.  
+
+
+```{r, eval=unique(slDT$NormMethod)=="RUV3"}
+
+nYkList <- lapply(1:5, function(k, Y, M, cIdx, mValue, MValue){
+  #browser()
+  nYm <- medianRUVIIIPlate(k, Y, M, cIdx)
+  setnames(nYm, "Value", "mel")
+  nYM <- madRUVIIIPlate(k, Y, M, cIdx)
+  setnames(nYM, "Value", "Mel")
+  setkey(nYm,Barcode,Well,ECMp)
+  setkey(nYM,Barcode,Well,ECMp)
+  nY <- merge(nYm, nYM)
+  nY$BW <- paste(nY$Barcode,nY$Well, sep="_")
+  setkey(nY,BW)
+  BWL <- unique(slDT[,.(BW,Ligand)])
+  setkey(BWL,BW)
+  nY <- merge(nY, BWL)
+  nY$MEP <- paste(nY$ECMp,nY$Ligand, sep="_")
+  nY <- nY[,BW :=NULL]
+  
+  #Add margin values
+  nY <- addMarginValues(dt=nY, mValue="mel",MValue="Mel")
+  nY$k <- k
+  return(nY)
+}, Y=YPlate, M=matrix(1,nrow=nrow(YPlate)), cIdx=which(grepl("A03",colnames(YPlate))), mValue="mel", MValue="Mel")
+
+nY <- rbindlist(nYkList)
+
+```
+
+
+Each box plot in the first figure contains SCC values for the designated ECMp paired with each of the 64 ligands. The 64 values in each box are the medians of the replicates of each ECMp+ligand pair minus the median of all ECM proteins paired with that ligand. This removes much of the response due to the ligands.   
+```{r}
+groupBy <- "ECMp"
+value <- "mel-m.l"
+colourBy <- "Barcode"
+
+dt <- rbind(nY,cbind(mlDT,k=0))
+yLimits=quantile(dt[["mel"]]-dt[["m.l"]], probs=c(.005, .995), na.rm=TRUE)
+p <- ggplot(dt,aes_string(x=groupBy, y=value))+
+  geom_boxplot()+ 
+  ggtitle(bquote(SCC~Medians~(m["e,l"]*"-"*m[".,l"])~After~.(unique(slDT$NormMethod))~Normalization))+
+  xlab("")+ylab("")+
+  coord_cartesian(ylim=yLimits)+
+  guides(fill=FALSE)+
+  theme_grey(base_size = 12, base_family = "")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.6)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.5)))
+
+if(unique(slDT$NormMethod) %in% c("NaiveRandRUV")){
+  p <- p +  facet_grid(k~nu, labeller = labeller(nu = label_both, k = label_both))
+} else if (unique(slDT$NormMethod) %in% c("NaiveReplicateRUV","RUV3","NaiveReplicateRUVSS")) {
+  p <- p + facet_grid(k~., labeller = labeller(k = label_both))
+} else if (unique(slDT$NormMethod) %in% c("RZS")) {
+  p <- p
+}  else(stop(paste("Do not have a plot method for",unique(slDT$NormMethod),"normalization")))
+
+suppressWarnings(print(p))
+
+```
+
+<br>
+
+Each box plot in the next two figures contain SCC values for the designated ligands paired with each of the 48 ECM proteins. In this figure, each box contains the medians of the replicates of each ECMp+ligand pair minus the median of all ligands paired with that ECM protein. This removes much of the response due to the ECM proteins.  
+
+The first figure is organized by plate while the second groups the wells.  
+
+```{r}
+groupBy <- "Ligand"
+value <- "mel-me."
+colourBy <- "Barcode"
+
+yLimits=quantile(dt[["mel"]]-dt[["me."]], probs=c(.005, .995), na.rm=TRUE)
+
+p <- ggplot(dt,aes_string(x=groupBy, y=value, colour=colourBy))+
+  geom_boxplot()+ 
+  ggtitle(bquote(SCC~Medians~(m["e,l"]*"-"*m["e,."])~After~.(unique(slDT$NormMethod))~Normalization))+
+  xlab("")+ylab("")+
+  coord_cartesian(ylim=yLimits)+
+  guides(fill=FALSE)+
+  theme_grey(base_size = 12, base_family = "")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.6)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.5)))
+
+if(unique(slDT$NormMethod) %in% c("NaiveRandRUV")){
+  p <- p +  facet_grid(k~nu, labeller = labeller(nu = label_both, k = label_both))
+} else if (unique(slDT$NormMethod) %in% c("NaiveReplicateRUV","RUV3","NaiveReplicateRUVSS")) {
+  p <- p + facet_grid(k~., labeller = labeller(k = label_both))
+} else if (unique(slDT$NormMethod) %in% c("RZS")) {
+  p <- p
+}  else(stop(paste("Do not have a plot method for",unique(slDT$NormMethod),"normalization")))
+suppressWarnings(print(p))
+
+
+```
+
+
+```{r}
+groupBy <- "Well"
+value <- "mel-me."
+colourBy <- "Barcode"
+
+yLimits=quantile(dt[["mel"]]-dt[["me."]], probs=c(.005, .995), na.rm=TRUE)
+
+p <- ggplot(dt,aes_string(x=groupBy, y=value, colour=colourBy))+
+  geom_boxplot()+ 
+  ggtitle(bquote(SCC~Medians~(m["e,l"]*"-"*m["e,."])~After~.(unique(slDT$NormMethod))~Normalization))+
+  xlab("")+ylab("")+
+  coord_cartesian(ylim=yLimits)+
+  guides(fill=FALSE)+
+  theme_grey(base_size = 12, base_family = "")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.6)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.5)))
+
+if(unique(slDT$NormMethod) %in% c("NaiveRandRUV")){
+  p <- p +  facet_grid(k~nu, labeller = labeller(nu = label_both, k = label_both))
+} else if (unique(slDT$NormMethod) %in% c("NaiveReplicateRUV","RUV3","NaiveReplicateRUVSS")) {
+  p <- p + facet_grid(k~., labeller = labeller(k = label_both))
+} else if (unique(slDT$NormMethod) %in% c("RZS")) {
+  p <- p
+}  else(stop(paste("Do not have a plot method for",unique(slDT$NormMethod),"normalization")))
+suppressWarnings(print(p))
+
+
+```

@@ -1,0 +1,4 @@
+
+###NaiveReplicateRUV2 with Array Values and Residuals as Unit of Study
+
+In the following plots naiveReplicateRUV-2 normalization is applied to the `r unique(x[["Signal"]])` signal of all spots with the array values and their residuals as the unit of study. The input data is a `r dim(YArrayVR)[1]` x `r dim(YArrayVR)[2]` matrix of transformed `r unique(x[["Signal"]])` values. The arrays in the A03 wells are designated as replicates. All residuals are designated as negative controls. The faceted plots show various values of the k parameter.
