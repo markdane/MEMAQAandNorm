@@ -186,27 +186,7 @@ medianRUVIIIArrayWithResiduals <- function(k, Y, M, cIdx){
   return(nYm)
 }
 
-#' Apply RUV3 normalization on a signal and its residuals
-#' 
-#' Assumes there are signal values in the first half of each row
-#' and residuals in the second half
-#' @export
-RUVIIIArrayWithResiduals <- function(k, Y, M, cIdx){
-  nY <- RUVIII(Y, M, cIdx, k)[["newY"]]
-  #Remove residuals
-  nY <- nY[,1:(ncol(nY)/2)]
-  #melt matrix to have ECMp and Ligand columns
-  nYm <- melt(nY, varnames=c("BWL","SE"))
-  if(any(grepl("value",colnames(nYm)))) setnames(nYm, "value", "Value")
-  splits <- limma::strsplit2(nYm$BWL,split = "_")
-  nYm$Barcode <- splits[,1]
-  nYm$Well <- splits[,2]
-  nYm$Ligand <- splits[,3]
-  nYm$ECMp <- sub("([[:alnum:]]*_){1}","",nYm$SE)
-  nYm$Spot <- as.integer(sub("(_[[:alnum:]]*){1}","",nYm$SE))
-  nYm$MEP <- paste(nYm$ECMp,nYm$Ligand, sep="_")
-  return(nYm)
-}
+
 
 madRUVIIIArrayWithResiduals <- function(k, Y, M, cIdx){
   nY <- RUVIII(Y, M, cIdx, k)[["newY"]]
@@ -371,10 +351,6 @@ madNaiveRUV2Plate <- function(nu, Y, cIdx, k){
 }
 
 
-calcResidual <- function(x){
-  mel <- median(x, na.rm=TRUE)
-  return(x-mel)
-}
 
 naiveRUV2Plate <- function(k, nu, Y, cIdx){
   if(k==0){
